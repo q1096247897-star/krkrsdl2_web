@@ -159,6 +159,11 @@
         overflow: hidden;
       }
       .meta { font-size: 11px; color: #6b717c; margin-top: 10px; }
+      .path {
+        font-size: 10px; color: #5b616c; margin-top: 4px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        word-break: break-all; line-height: 1.4;
+      }
       .editBtn {
         position: absolute;
         top: 8px; right: 8px;
@@ -449,6 +454,7 @@
           +   '<div class="title">'+escapeHtml(g.title)+'</div>'
           +   (g.description ? '<p class="desc">'+escapeHtml(g.description)+'</p>' : '')
           +   '<div class="meta">'+escapeHtml(humanSize(g.size))+(g.author?' · '+escapeHtml(g.author):'')+'</div>'
+          +   '<div class="path">'+escapeHtml(g.file)+'</div>'
           + '</div></div>';
       }
 
