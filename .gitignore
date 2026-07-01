@@ -11,6 +11,9 @@ build/krkrsdl2
 build-*
 build_*
 build
+# 部署相关：deploy/ 是生成的自包含部署包，docker/.env 是本地配置
+deploy/
+docker/.env
 .externalNativeBuild
 .gradle
 android-project/app/.cxx/

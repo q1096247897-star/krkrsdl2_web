@@ -1,0 +1,8 @@
+# 构建时不需要这些进镜像（数据通过卷挂载提供）
+games/
+covers/
+manifest.json
+.env
+*.md
+configure.sh
+docker-compose.yml

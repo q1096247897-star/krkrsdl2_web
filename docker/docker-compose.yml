@@ -1,0 +1,13 @@
+services:
+  krkr-web:
+    build: .
+    image: krkr-web:latest
+    container_name: krkr-web
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    volumes:
+      # games/covers/manifest 在宿主持久化，方便用 File Station 直接管理
+      - ${GAMES_DIR:-./games}:/app/games
+      - ${COVERS_DIR:-./covers}:/app/covers
+      - ${MANIFEST_FILE:-./manifest.json}:/app/manifest.json
