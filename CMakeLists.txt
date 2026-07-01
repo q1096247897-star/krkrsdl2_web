@@ -753,8 +753,14 @@ endif()
 
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
 configure_file(
-	src/config/index.html.in
+	src/config/home.html.in
 	index.html
+	@ONLY
+	NEWLINE_STYLE UNIX
+)
+configure_file(
+	src/config/play.html.in
+	play.html
 	@ONLY
 	NEWLINE_STYLE UNIX
 )

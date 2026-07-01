@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kirikiri SDL2 游戏库</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+        margin: 0;
+        background: #0f1115;
+        color: #e6e6e6;
+        min-height: 100vh;
+      }
+      a { color: inherit; }
+
+      #header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 12px 24px;
+        background: rgba(15, 17, 21, 0.92);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid #23262d;
+      }
+      #header .logo { display: inline-flex; align-items: center; text-decoration: none; }
+      #header .logo svg { width: 36px; height: 36px; }
+      #header .logo span { margin-left: 8px; font-weight: 600; font-size: 16px; opacity: .85; }
+      #header .spacer { flex: 1; }
+      #search {
+        flex: 0 1 320px;
+        padding: 8px 12px;
+        background: #1b1e25;
+        border: 1px solid #2c3038;
+        border-radius: 8px;
+        color: #e6e6e6;
+        font-size: 14px;
+        outline: none;
+      }
+      #search:focus { border-color: #4a7fc8; }
+      #scanBtn {
+        padding: 8px 16px;
+        background: #2d6cf0;
+        border: none;
+        border-radius: 8px;
+        color: #fff;
+        font-size: 14px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      #scanBtn:hover { background: #4180ff; }
+      #scanBtn:disabled { opacity: .6; cursor: progress; }
+      #scanBtn .spin {
+        display: inline-block;
+        width: 12px; height: 12px;
+        border: 2px solid rgba(255,255,255,.4);
+        border-top-color: #fff;
+        border-radius: 50%;
+        vertical-align: -2px;
+        margin-right: 6px;
+        animation: rot .7s linear infinite;
+      }
+      @keyframes rot { to { transform: rotate(360deg); } }
+
+      #grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 20px;
+        padding: 24px;
+        max-width: 1600px;
+        margin: 0 auto;
+      }
+      .card {
+        background: #1a1d24;
+        border: 1px solid #262a32;
+        border-radius: 12px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        transition: transform .12s, border-color .12s;
+        cursor: pointer;
+        position: relative;
+      }
+      .card:hover { transform: translateY(-3px); border-color: #3a4150; }
+      .cover {
+        width: 100%;
+        aspect-ratio: 4 / 3;
+        object-fit: cover;
+        background: #0c0e12;
+        display: block;
+      }
+      .cover.placeholder {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 48px;
+        font-weight: 700;
+        color: rgba(255,255,255,.55);
+      }
+      .body { padding: 12px 14px 16px; flex: 1; display: flex; flex-direction: column; }
+      .title { font-size: 15px; font-weight: 600; margin: 0 0 6px; line-height: 1.3; }
+      .desc {
+        font-size: 12px; color: #9aa0aa; margin: 0;
+        line-height: 1.45;
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .meta { font-size: 11px; color: #6b717c; margin-top: 10px; }
+      .editBtn {
+        position: absolute;
+        top: 8px; right: 8px;
+        padding: 5px 10px;
+        background: rgba(0,0,0,.6);
+        border: 1px solid rgba(255,255,255,.2);
+        border-radius: 6px;
+        color: #fff;
+        font-size: 12px;
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity .12s;
+      }
+      .card:hover .editBtn { opacity: 1; }
+
+      #empty {
+        text-align: center;
+        padding: 80px 24px;
+        color: #6b717c;
+      }
+      #empty .big { font-size: 18px; margin-bottom: 8px; color: #9aa0aa; }
+      #toast {
+        position: fixed;
+        bottom: 24px; left: 50%; transform: translateX(-50%);
+        background: #2d6cf0;
+        color: #fff;
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-size: 14px;
+        opacity: 0;
+        transition: opacity .2s;
+        pointer-events: none;
+        z-index: 50;
+      }
+      #toast.show { opacity: 1; }
+
+      /* 编辑模态框 */
+      #modal {
+        display: none;
+        position: fixed; inset: 0;
+        background: rgba(0,0,0,.6);
+        z-index: 40;
+        align-items: center; justify-content: center;
+        padding: 16px;
+      }
+      #modal.show { display: flex; }
+      #modal .box {
+        background: #1a1d24;
+        border: 1px solid #2c3038;
+        border-radius: 12px;
+        width: 100%; max-width: 480px;
+        max-height: 90vh; overflow-y: auto;
+        padding: 24px;
+      }
+      #modal h3 { margin: 0 0 16px; font-size: 18px; }
+      #modal label { display: block; font-size: 12px; color: #9aa0aa; margin: 14px 0 4px; }
+      #modal input[type=text], #modal textarea {
+        width: 100%;
+        padding: 8px 10px;
+        background: #0f1115;
+        border: 1px solid #2c3038;
+        border-radius: 6px;
+        color: #e6e6e6;
+        font-size: 14px;
+        font-family: inherit;
+        outline: none;
+      }
+      #modal textarea { resize: vertical; min-height: 70px; }
+      #modal input:focus, #modal textarea:focus { border-color: #4a7fc8; }
+      #modal .coverRow { display: flex; gap: 12px; align-items: center; }
+      #modal .coverPreview {
+        width: 96px; height: 72px; border-radius: 6px;
+        object-fit: cover; background: #0c0e12; flex-shrink: 0;
+      }
+      #modal .coverPreview.placeholder {
+        display: flex; align-items: center; justify-content: center;
+        font-size: 24px; color: rgba(255,255,255,.4);
+      }
+      #modal .coverActions { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+      #modal .uploadBtn {
+        padding: 6px 10px; background: #2c3038; border: 1px solid #3a4150;
+        border-radius: 6px; color: #e6e6e6; font-size: 12px; cursor: pointer;
+        text-align: center;
+      }
+      #modal .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; }
+      #modal button.save { padding: 9px 20px; background: #2d6cf0; border: none; border-radius: 6px; color: #fff; cursor: pointer; font-size: 14px; }
+      #modal button.cancel { padding: 9px 20px; background: transparent; border: 1px solid #3a4150; border-radius: 6px; color: #e6e6e6; cursor: pointer; font-size: 14px; }
+      #modal .hint { font-size: 11px; color: #6b717c; margin-top: 4px; word-break: break-all; }
+    </style>
+  </head>
+  <body>
+    <div id="header">
+      <a class="logo" href="https://krkrsdl2.github.io/krkrsdl2/" target="_blank" rel="noopener">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50.375 50.375" height="50.375" width="50.375" version="1.1">
+          <g id="layer1" transform="translate(-161.4375,-434.625)">
+            <path sodipodi:nodetypes="ccccsssc" id="path2284" d="m 198.25103,444.85647 8.34393,-8.23832 0,20.91264 -8.23831,-8.44955 c 0,0 -5.17491,8.47785 -16.79349,8.44955 -11.82903,-0.0291 -16.79349,-7.28773 -16.79349,-10.45632 0,-3.16858 4.96444,-10.48744 16.79349,-10.45632 11.72419,0.0306 16.68787,8.23832 16.68787,8.23832 z" style="fill:#3b34ff;fill-opacity:0.8;fill-rule:evenodd;stroke:#000;stroke-width:1.67;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1"/>
+            <path sodipodi:nodetypes="ccccsssc" id="path2288" d="m 173.14996,467.61533 -8.34393,-8.23831 0,20.91263 8.23831,-8.44954 c 0,0 5.17491,8.47785 16.79349,8.44954 11.82902,-0.0291 16.79349,-7.28773 16.79349,-10.45631 0,-3.16858 -4.96445,-10.48745 -16.79349,-10.45632 -11.72419,0.0306 -16.68787,8.23831 -16.68787,8.23831 z" style="fill:#3b34ff;fill-opacity:0.8;fill-rule:evenodd;stroke:#000;stroke-width:1.67;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1"/>
+          </g>
+        </svg>
+        <span>Kirikiri SDL2 游戏库</span>
+      </a>
+      <div class="spacer"></div>
+      <input id="search" type="search" placeholder="搜索游戏…" autocomplete="off">
+      <button id="scanBtn">扫描游戏</button>
+    </div>
+
+    <div id="grid"></div>
+    <div id="empty" style="display:none">
+      <div class="big">未发现游戏</div>
+      <div>把 <code>.xp3</code> 文件放入 <code>games/</code> 目录，然后点右上角"扫描游戏"。</div>
+    </div>
+
+    <div id="toast"></div>
+
+    <div id="modal">
+      <div class="box">
+        <h3>编辑游戏信息</h3>
+        <label>标题</label>
+        <input type="text" id="fTitle">
+        <label>简介</label>
+        <textarea id="fDesc"></textarea>
+        <label>作者</label>
+        <input type="text" id="fAuthor">
+        <label>封面</label>
+        <div class="coverRow">
+          <img id="fCoverPreview" class="coverPreview placeholder" alt="">
+          <div class="coverActions">
+            <label class="uploadBtn" for="fCoverFile">上传图片…</label>
+            <input type="file" id="fCoverFile" accept="image/png,image/jpeg,image/webp" style="display:none">
+            <div class="hint" id="fCoverPath">未设置</div>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="cancel" id="mCancel">取消</button>
+          <button class="save" id="mSave">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      var games = [];
+      var editing = null;
+      var pendingCoverPath = null;
+
+      var $ = function(id){ return document.getElementById(id); };
+      var grid = $('grid'), empty = $('empty'), search = $('search');
+      var scanBtn = $('scanBtn');
+
+      function deriveTitle(file){
+        var name = file.split('/').pop().replace(/\.xp3$/i, '');
+        return name.replace(/[.__-]+/g, ' ').trim() || name;
+      }
+
+      function humanSize(n){
+        if(!n) return '';
+        if(n < 1024) return n + ' B';
+        if(n < 1048576) return (n/1024).toFixed(1) + ' KB';
+        return (n/1048576).toFixed(1) + ' MB';
+      }
+
+      function escapeHtml(s){
+        return String(s||'').replace(/[&<>"']/g, function(c){
+          return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+        });
+      }
+
+      function toast(msg){
+        var t = $('toast');
+        t.textContent = msg; t.classList.add('show');
+        setTimeout(function(){ t.classList.remove('show'); }, 1800);
+      }
+
+      async function fetchGames(){
+        var r = await fetch('api/games', {cache:'no-store'});
+        if(!r.ok) return [];
+        var j = await r.json();
+        return j.games || [];
+      }
+
+      async function fetchManifest(){
+        try{
+          var r = await fetch('api/manifest', {cache:'no-store'});
+          if(!r.ok) return {};
+          return await r.json();
+        }catch(e){ return {}; }
+      }
+
+      async function saveManifest(){
+        var r = await fetch('api/manifest', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({games: games.map(stripForSave)})
+        });
+        return r.ok;
+      }
+
+      function stripForSave(g){
+        var o = {file: g.file};
+        if(g.title) o.title = g.title;
+        if(g.description) o.description = g.description;
+        if(g.cover) o.cover = g.cover;
+        if(g.author) o.author = g.author;
+        if(g.size) o.size = g.size;
+        return o;
+      }
+
+      async function uploadCover(file){
+        var r = await fetch('api/cover', {
+          method:'POST',
+          headers:{'Content-Type':'application/octet-stream', 'X-Filename': file.name},
+          body: file
+        });
+        if(!r.ok){ var e = await r.json().catch(function(){return {};}); throw new Error(e.error || '上传失败'); }
+        var j = await r.json();
+        return j.cover;
+      }
+
+      async function refresh(){
+        scanBtn.disabled = true;
+        scanBtn.innerHTML = '<span class="spin"></span>扫描中';
+        try{
+          var files = await fetchGames();
+          var meta = await fetchManifest();
+          var metaMap = {};
+          (meta.games || []).forEach(function(g){ metaMap[g.file] = g; });
+          games = files.map(function(f){
+            var m = metaMap[f.file] || {};
+            return {
+              file: f.file, size: f.size,
+              title: m.title || deriveTitle(f.file),
+              description: m.description || '',
+              cover: m.cover || '',
+              author: m.author || ''
+            };
+          });
+          render();
+        }catch(e){
+          toast('扫描失败：' + e.message);
+        }finally{
+          scanBtn.disabled = false;
+          scanBtn.textContent = '扫描游戏';
+        }
+      }
+
+      function render(){
+        var q = search.value.trim().toLowerCase();
+        var list = q ? games.filter(function(g){
+          return (g.title||'').toLowerCase().indexOf(q) >= 0
+              || (g.description||'').toLowerCase().indexOf(q) >= 0;
+        }) : games;
+
+        if(!games.length){
+          grid.innerHTML = '';
+          empty.style.display = 'block';
+          return;
+        }
+        empty.style.display = 'none';
+
+        grid.innerHTML = list.map(function(g, i){
+          var idx = games.indexOf(g);
+          var coverHtml;
+          if(g.cover){
+            coverHtml = '<img class="cover" src="' + escapeHtml(g.cover) + '" alt="" loading="lazy" onerror="this.outerHTML=\'<div class=&quot;cover placeholder&quot;>' + escapeHtml((g.title||'?').charAt(0)) + '</div>\'">';
+          }else{
+            coverHtml = '<div class="cover placeholder">' + escapeHtml((g.title||'?').charAt(0)) + '</div>';
+          }
+          return '<div class="card" data-idx="'+idx+'">'
+            + coverHtml
+            + '<button class="editBtn" data-edit="'+idx+'">编辑</button>'
+            + '<div class="body">'
+            +   '<div class="title">'+escapeHtml(g.title)+'</div>'
+            +   (g.description ? '<p class="desc">'+escapeHtml(g.description)+'</p>' : '')
+            +   '<div class="meta">'+escapeHtml(humanSize(g.size))+(g.author?' · '+escapeHtml(g.author):'')+'</div>'
+            + '</div></div>';
+        }).join('');
+      }
+
+      grid.addEventListener('click', function(e){
+        var editBtn = e.target.closest('[data-edit]');
+        if(editBtn){ e.stopPropagation(); openEdit(parseInt(editBtn.dataset.edit,10)); return; }
+        var card = e.target.closest('.card');
+        if(card){
+          var g = games[parseInt(card.dataset.idx,10)];
+          if(g) location.href = 'play.html?data=' + encodeURIComponent(g.file);
+        }
+      });
+
+      search.addEventListener('input', render);
+      scanBtn.addEventListener('click', refresh);
+
+      // ---- 编辑模态框 ----
+      function openEdit(idx){
+        editing = games[idx];
+        pendingCoverPath = editing.cover || null;
+        $('fTitle').value = editing.title || '';
+        $('fDesc').value = editing.description || '';
+        $('fAuthor').value = editing.author || '';
+        $('fCoverPath').textContent = editing.cover || '未设置';
+        setCoverPreview(editing.cover);
+        $('fCoverFile').value = '';
+        $('modal').classList.add('show');
+      }
+
+      function setCoverPreview(path){
+        var img = $('fCoverPreview');
+        if(path){
+          img.src = path + (path.indexOf('?')<0 ? '?t=' : '&t=') + Date.now();
+          img.classList.remove('placeholder');
+          img.onerror = function(){ img.classList.add('placeholder'); img.alt=''; };
+        }else{
+          img.removeAttribute('src');
+          img.classList.add('placeholder');
+          img.alt = '';
+        }
+      }
+
+      $('fCoverFile').addEventListener('change', async function(e){
+        var file = e.target.files[0];
+        if(!file) return;
+        try{
+          var path = await uploadCover(file);
+          pendingCoverPath = path;
+          $('fCoverPath').textContent = path;
+          setCoverPreview(path);
+          toast('封面上传成功');
+        }catch(err){ toast(err.message); }
+      });
+
+      $('mCancel').addEventListener('click', function(){ $('modal').classList.remove('show'); editing=null; });
+      $('modal').addEventListener('click', function(e){ if(e.target === $('modal')) $('mCancel').click(); });
+
+      $('mSave').addEventListener('click', async function(){
+        if(!editing) return;
+        editing.title = $('fTitle').value.trim() || deriveTitle(editing.file);
+        editing.description = $('fDesc').value.trim();
+        editing.author = $('fAuthor').value.trim();
+        editing.cover = pendingCoverPath || '';
+        var btn = $('mSave'); btn.disabled = true; btn.textContent = '保存中…';
+        var ok = await saveManifest();
+        btn.disabled = false; btn.textContent = '保存';
+        if(ok){
+          $('modal').classList.remove('show');
+          editing = null;
+          render();
+          toast('已保存');
+        }else{
+          toast('保存失败');
+        }
+      });
+
+      refresh();
+    </script>
+  </body>
+</html>
