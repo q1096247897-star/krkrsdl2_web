@@ -86,6 +86,55 @@
         position: relative;
       }
       .card:hover { transform: translateY(-3px); border-color: #3a4150; }
+      .section {
+        grid-column: 1 / -1;
+        font-size: 14px;
+        font-weight: 600;
+        color: #9aa0aa;
+        margin: 8px 0 -4px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid #23262d;
+      }
+      .section .count { font-weight: 400; color: #6b717c; margin-left: 6px; }
+      .backBar {
+        grid-column: 1 / -1;
+        display: flex; align-items: center; gap: 12px;
+        margin-bottom: 4px;
+      }
+      .backBar a {
+        color: #9aa0aa; text-decoration: none; font-size: 14px; cursor: pointer;
+      }
+      .backBar a:hover { color: #e6e6e6; }
+      .backBar .title { font-size: 18px; font-weight: 600; color: #e6e6e6; }
+      .seriesCard .collage {
+        width: 100%;
+        aspect-ratio: 4 / 3;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: 1fr 1fr;
+        gap: 2px;
+        background: #0c0e12;
+      }
+      .seriesCard .collage .cell {
+        width: 100%; height: 100%;
+        object-fit: cover;
+        background: #0c0e12;
+      }
+      .seriesCard .collage .cell.placeholder {
+        display: flex; align-items: center; justify-content: center;
+        font-size: 28px; font-weight: 700; color: rgba(255,255,255,.45);
+      }
+      .seriesCard .collage.single { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+      .seriesCard .badge {
+        position: absolute;
+        top: 8px; right: 8px;
+        background: rgba(0,0,0,.7);
+        color: #fff;
+        font-size: 11px;
+        padding: 3px 8px;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,.15);
+      }
       .cover {
         width: 100%;
         aspect-ratio: 4 / 3;
@@ -233,6 +282,9 @@
         <textarea id="fDesc"></textarea>
         <label>作者</label>
         <input type="text" id="fAuthor">
+        <label>系列</label>
+        <input type="text" id="fSeries" list="seriesList" placeholder="留空归入未分组">
+        <datalist id="seriesList"></datalist>
         <label>封面</label>
         <div class="coverRow">
           <img id="fCoverPreview" class="coverPreview placeholder" alt="">
@@ -253,6 +305,7 @@
       var games = [];
       var editing = null;
       var pendingCoverPath = null;
+      var currentSeries = null; // null=汇总页；字符串=查看该系列
 
       var $ = function(id){ return document.getElementById(id); };
       var grid = $('grid'), empty = $('empty'), search = $('search');
@@ -280,6 +333,31 @@
         var t = $('toast');
         t.textContent = msg; t.classList.add('show');
         setTimeout(function(){ t.classList.remove('show'); }, 1800);
+      }
+
+      function updateSeriesList(){
+        var seen = {};
+        var html = '';
+        games.forEach(function(g){
+          if(g.series && !seen[g.series]){ seen[g.series] = 1; html += '<option value="' + escapeHtml(g.series) + '">'; }
+        });
+        $('seriesList').innerHTML = html;
+      }
+
+      // 按 series 归集：返回 { names: [首次出现顺序的系列名], groups: {name: [games]}, ungrouped: [games] }
+      function groupBySeries(list){
+        var names = [];
+        var groups = {};
+        var ungrouped = [];
+        list.forEach(function(g){
+          if(g.series){
+            if(!groups[g.series]){ groups[g.series] = []; names.push(g.series); }
+            groups[g.series].push(g);
+          }else{
+            ungrouped.push(g);
+          }
+        });
+        return { names: names, groups: groups, ungrouped: ungrouped };
       }
 
       async function fetchGames(){
@@ -312,6 +390,7 @@
         if(g.description) o.description = g.description;
         if(g.cover) o.cover = g.cover;
         if(g.author) o.author = g.author;
+        if(g.series) o.series = g.series;
         if(g.size) o.size = g.size;
         return o;
       }
@@ -342,7 +421,8 @@
               title: m.title || deriveTitle(f.file),
               description: m.description || '',
               cover: m.cover || '',
-              author: m.author || ''
+              author: m.author || '',
+              series: m.series || ''
             };
           });
           render();
@@ -354,12 +434,48 @@
         }
       }
 
+      function gameCardHtml(g){
+        var idx = games.indexOf(g);
+        var coverHtml;
+        if(g.cover){
+          coverHtml = '<img class="cover" src="' + escapeHtml(g.cover) + '" alt="" loading="lazy" onerror="this.outerHTML=\'<div class=&quot;cover placeholder&quot;>' + escapeHtml((g.title||'?').charAt(0)) + '</div>\'">';
+        }else{
+          coverHtml = '<div class="cover placeholder">' + escapeHtml((g.title||'?').charAt(0)) + '</div>';
+        }
+        return '<div class="card" data-idx="'+idx+'">'
+          + coverHtml
+          + '<button class="editBtn" data-edit="'+idx+'">编辑</button>'
+          + '<div class="body">'
+          +   '<div class="title">'+escapeHtml(g.title)+'</div>'
+          +   (g.description ? '<p class="desc">'+escapeHtml(g.description)+'</p>' : '')
+          +   '<div class="meta">'+escapeHtml(humanSize(g.size))+(g.author?' · '+escapeHtml(g.author):'')+'</div>'
+          + '</div></div>';
+      }
+
+      function seriesCardHtml(name, members){
+        var covers = members.filter(function(g){ return !!g.cover; }).slice(0, 4);
+        var collageHtml, singleCls = '';
+        if(!covers.length){
+          collageHtml = '<div class="cell placeholder">' + escapeHtml((name||'?').charAt(0)) + '</div>';
+        }else if(covers.length === 1){
+          singleCls = ' single';
+          collageHtml = '<img class="cell" src="' + escapeHtml(covers[0].cover) + '" alt="" loading="lazy">';
+        }else{
+          collageHtml = covers.map(function(g){
+            return '<img class="cell" src="' + escapeHtml(g.cover) + '" alt="" loading="lazy">';
+          }).join('');
+        }
+        return '<div class="card seriesCard" data-series="' + escapeHtml(name) + '">'
+          + '<div class="collage' + singleCls + '">' + collageHtml + '</div>'
+          + '<span class="badge">' + members.length + ' 款</span>'
+          + '<div class="body">'
+          +   '<div class="title">'+escapeHtml(name)+'</div>'
+          +   '<p class="desc">共 ' + members.length + ' 款游戏</p>'
+          + '</div></div>';
+      }
+
       function render(){
         var q = search.value.trim().toLowerCase();
-        var list = q ? games.filter(function(g){
-          return (g.title||'').toLowerCase().indexOf(q) >= 0
-              || (g.description||'').toLowerCase().indexOf(q) >= 0;
-        }) : games;
 
         if(!games.length){
           grid.innerHTML = '';
@@ -368,29 +484,47 @@
         }
         empty.style.display = 'none';
 
-        grid.innerHTML = list.map(function(g, i){
-          var idx = games.indexOf(g);
-          var coverHtml;
-          if(g.cover){
-            coverHtml = '<img class="cover" src="' + escapeHtml(g.cover) + '" alt="" loading="lazy" onerror="this.outerHTML=\'<div class=&quot;cover placeholder&quot;>' + escapeHtml((g.title||'?').charAt(0)) + '</div>\'">';
-          }else{
-            coverHtml = '<div class="cover placeholder">' + escapeHtml((g.title||'?').charAt(0)) + '</div>';
+        // 搜索：跨所有游戏扁平过滤，忽略系列视图
+        if(q){
+          var list = games.filter(function(g){
+            return (g.title||'').toLowerCase().indexOf(q) >= 0
+                || (g.description||'').toLowerCase().indexOf(q) >= 0
+                || (g.series||'').toLowerCase().indexOf(q) >= 0;
+          });
+          grid.innerHTML = list.map(gameCardHtml).join('');
+          return;
+        }
+
+        var html = '';
+        if(currentSeries === null){
+          // 汇总页：系列卡片 + 未分组
+          var gb = groupBySeries(games);
+          if(gb.names.length){
+            html += '<div class="section">系列汇总<span class="count">' + gb.names.length + ' 个系列</span></div>';
+            html += gb.names.map(function(n){ return seriesCardHtml(n, gb.groups[n]); }).join('');
           }
-          return '<div class="card" data-idx="'+idx+'">'
-            + coverHtml
-            + '<button class="editBtn" data-edit="'+idx+'">编辑</button>'
-            + '<div class="body">'
-            +   '<div class="title">'+escapeHtml(g.title)+'</div>'
-            +   (g.description ? '<p class="desc">'+escapeHtml(g.description)+'</p>' : '')
-            +   '<div class="meta">'+escapeHtml(humanSize(g.size))+(g.author?' · '+escapeHtml(g.author):'')+'</div>'
-            + '</div></div>';
-        }).join('');
+          if(gb.ungrouped.length){
+            html += '<div class="section">未分组<span class="count">' + gb.ungrouped.length + ' 款</span></div>';
+            html += gb.ungrouped.map(gameCardHtml).join('');
+          }
+        }else{
+          // 系列详情页
+          var members = games.filter(function(g){ return g.series === currentSeries; });
+          if(!members.length){ currentSeries = null; return render(); }
+          html += '<div class="backBar"><a data-back>← 所有系列</a><span class="title">' + escapeHtml(currentSeries) + '</span></div>';
+          html += members.map(gameCardHtml).join('');
+        }
+        grid.innerHTML = html;
       }
 
       grid.addEventListener('click', function(e){
         var editBtn = e.target.closest('[data-edit]');
         if(editBtn){ e.stopPropagation(); openEdit(parseInt(editBtn.dataset.edit,10)); return; }
-        var card = e.target.closest('.card');
+        var back = e.target.closest('[data-back]');
+        if(back){ currentSeries = null; render(); return; }
+        var seriesCard = e.target.closest('[data-series]');
+        if(seriesCard){ currentSeries = seriesCard.getAttribute('data-series'); render(); return; }
+        var card = e.target.closest('.card[data-idx]');
         if(card){
           var g = games[parseInt(card.dataset.idx,10)];
           if(g) location.href = 'play.html?data=' + encodeURIComponent(g.file);
@@ -407,6 +541,8 @@
         $('fTitle').value = editing.title || '';
         $('fDesc').value = editing.description || '';
         $('fAuthor').value = editing.author || '';
+        $('fSeries').value = editing.series || '';
+        updateSeriesList();
         $('fCoverPath').textContent = editing.cover || '未设置';
         setCoverPreview(editing.cover);
         $('fCoverFile').value = '';
@@ -446,6 +582,7 @@
         editing.title = $('fTitle').value.trim() || deriveTitle(editing.file);
         editing.description = $('fDesc').value.trim();
         editing.author = $('fAuthor').value.trim();
+        editing.series = $('fSeries').value.trim();
         editing.cover = pendingCoverPath || '';
         var btn = $('mSave'); btn.disabled = true; btn.textContent = '保存中…';
         var ok = await saveManifest();

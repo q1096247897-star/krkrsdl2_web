@@ -103,11 +103,29 @@
         text-decoration: none;
       }
       #home_link:hover { background: rgba(60, 60, 60, 0.95); color: #fff; }
+      #seriesSwitch {
+        position: fixed;
+        top: 10px;
+        left: 140px;
+        z-index: 20;
+        padding: 6px 10px;
+        background: rgba(40, 40, 40, 0.85);
+        border: 1px solid rgb(80, 80, 80);
+        border-radius: 6px;
+        color: rgb(200, 200, 200);
+        font-size: 13px;
+        max-width: 280px;
+        outline: none;
+        cursor: pointer;
+      }
+      #seriesSwitch:hover { background: rgba(60, 60, 60, 0.95); color: #fff; }
+      #seriesSwitch[hidden] { display: none; }
     </style>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   </head>
   <body>
     <a href="index.html" id="home_link">← 返回游戏库</a>
+    <select id="seriesSwitch" hidden title="切换同系列游戏"></select>
 
     <a href="https://krkrsdl2.github.io/krkrsdl2/" style="display: inline-block; vertical-align: middle;">
       <svg
@@ -508,15 +526,20 @@
         _GET = {};
         if (location.search.length > 0) {
           location.search.substr(1).split('&').forEach(function(item) {
-            _GET[item.split("=")[0]] = item.split("=")[1]
+            var eq = item.indexOf('=');
+            var k = eq < 0 ? item : item.substr(0, eq);
+            var v = eq < 0 ? '' : item.substr(eq + 1);
+            try { k = decodeURIComponent(k); } catch(e) {}
+            try { v = decodeURIComponent(v); } catch(e) {}
+            _GET[k] = v;
           });
         }
 
         if (_GET['data']) {
-          // 允许带子目录的相对路径（如 games/foo.xp3），
-          // 但拒绝路径穿越、绝对路径和协议相对 URL。
+          // 允许带子目录的相对路径（含中文等 Unicode 文件名，如 games/中文.xp3），
+          // 但拒绝路径穿越、绝对路径、协议相对 URL 和 javascript: 之类的 scheme。
           var d = _GET['data'];
-          if (/^[A-Za-z0-9._\/-]+$/.test(d) && d.indexOf('..') === -1 && d.indexOf('//') === -1 && d.charAt(0) !== '/') {
+          if (d.indexOf('..') === -1 && d.indexOf('//') === -1 && d.charAt(0) !== '/' && !/^[a-z][a-z0-9+.-]*:/i.test(d)) {
             url = d;
           } else {
             throw "不允许的路径";
@@ -599,8 +622,10 @@
         // 下载 data.xp3（或通过 ?data= 指定的文件）
         xhrDownloadFile('data.xp3', '/data.xp3');
 
-        // 初始化 IDBFS 用于存档数据
-        Module['FS'].mount(Module['IDBFS'], {}, '/libsdl/krkrsdl2');
+        // 初始化 IDBFS 用于存档数据。按游戏隔离 root，避免不同游戏存档
+        // 在 IndexedDB 里互相覆盖（挂载点不变，引擎写存档路径不受影响）。
+        var gameId = (_GET['data'] || 'data.xp3').replace(/[^A-Za-z0-9._-]/g, '_');
+        Module['FS'].mount(Module['IDBFS'], { root: gameId }, '/libsdl/krkrsdl2');
 
         Module['FS'].syncfs(true, function (err) {
           Module['removeRunDependency']('savedata');
@@ -621,6 +646,46 @@
         loadMainJs();
       }
 
-</script>
+    </script>
+    <script>
+      // 系列快捷切换器：独立于 wasm Module，只读 manifest。
+      // 当前游戏有 series 且该系列 ≥2 款时显示下拉，切换即跳转。
+      (function(){
+        var sel = document.getElementById('seriesSwitch');
+        if(!sel) return;
+        function escapeHtmlLite(s){
+          return String(s||'').replace(/[&<>"]/g,function(c){
+            return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+          });
+        }
+        function currentDataFile(){
+          var m = /(?:^|[?&])data=([^&]*)/.exec(location.search);
+          if(!m) return 'data.xp3';
+          try { return decodeURIComponent(m[1]); } catch(e){ return m[1]; }
+        }
+        var current = currentDataFile();
+        fetch('api/manifest', {cache:'no-store'}).then(function(r){
+          return r.ok ? r.json() : null;
+        }).then(function(manifest){
+          if(!manifest || !manifest.games) return;
+          var list = manifest.games;
+          var me = null;
+          for(var i=0;i<list.length;i++){ if(list[i].file === current){ me = list[i]; break; } }
+          if(!me || !me.series) return;
+          var siblings = list.filter(function(g){ return g.series === me.series; });
+          if(siblings.length < 2) return;
+          sel.innerHTML = siblings.map(function(g){
+            var isCur = g.file === current ? ' selected' : '';
+            return '<option value="' + escapeHtmlLite(g.file) + '"' + isCur + '>'
+              + escapeHtmlLite(g.title || g.file) + '</option>';
+          }).join('');
+          sel.title = me.series;
+          sel.hidden = false;
+        }).catch(function(){ /* 静默：不影响游戏运行 */ });
+        sel.addEventListener('change', function(){
+          if(sel.value) location.href = 'play.html?data=' + encodeURIComponent(sel.value);
+        });
+      })();
+    </script>
   </body>
 </html>
