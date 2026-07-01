@@ -87,20 +87,20 @@ class Handler(SimpleHTTPRequestHandler):
                 with open(p, "r", encoding="utf-8") as f:
                     return self.send_json(json.load(f))
             except (OSError, json.JSONDecodeError) as e:
-                return self.send_json({"games": [], "error": str(e)}, 500)
+                return self.send_json({"games": [], "error": "读取 manifest 失败：" + str(e)}, 500)
         self.send_error(404, "Not Found")
 
     def api_save_manifest(self):
         length = int(self.headers.get("Content-Length", 0))
         if length <= 0 or length > 8 * 1024 * 1024:
-            return self.send_json({"error": "bad length"}, 400)
+            return self.send_json({"error": "请求体长度无效"}, 400)
         raw = self.rfile.read(length)
         try:
             obj = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as e:
-            return self.send_json({"error": "invalid json: " + str(e)}, 400)
+            return self.send_json({"error": "JSON 无效：" + str(e)}, 400)
         if not isinstance(obj, dict) or not isinstance(obj.get("games"), list):
-            return self.send_json({"error": "expected {games:[...]}"}, 400)
+            return self.send_json({"error": "应为 {games:[...]} 结构"}, 400)
         with _write_lock:
             atomic_write_json(self.root / MANIFEST_NAME, obj)
         return self.send_json({"ok": True})
@@ -108,12 +108,12 @@ class Handler(SimpleHTTPRequestHandler):
     def api_upload_cover(self):
         name = self.headers.get("X-Filename", "")
         if not COVER_RE.match(name):
-            return self.send_json({"error": "invalid filename"}, 400)
+            return self.send_json({"error": "文件名无效"}, 400)
         covers = self.root / "covers"
         covers.mkdir(exist_ok=True)
         length = int(self.headers.get("Content-Length", 0))
         if length <= 0 or length > 32 * 1024 * 1024:
-            return self.send_json({"error": "bad size"}, 400)
+            return self.send_json({"error": "文件大小无效"}, 400)
         data = self.rfile.read(length)
         dest = covers / name
         with _write_lock:
@@ -141,17 +141,17 @@ def main():
         sys.exit(1)
     root = Path(sys.argv[1]).resolve()
     if not root.is_dir():
-        print("deploy dir not found: " + str(root), file=sys.stderr)
+        print("部署目录不存在：" + str(root), file=sys.stderr)
         sys.exit(1)
     port = int(sys.argv[2]) if len(sys.argv) >= 3 else 8080
     (root / "games").mkdir(exist_ok=True)
     (root / "covers").mkdir(exist_ok=True)
     server = ThreadingHTTPServer(("0.0.0.0", port), lambda *a, **k: Handler(*a, root=root, **k))
-    print("serving " + str(root) + " at http://localhost:" + str(port))
+    print("正在服务 " + str(root) + " ，访问 http://localhost:" + str(port))
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nshutting down")
+        print("\n正在关闭")
 
 
 if __name__ == "__main__":
