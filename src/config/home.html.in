@@ -438,7 +438,7 @@
         var r = await fetch('api/manifest', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({games: games.map(stripForSave)})
+          body: JSON.stringify({initialized: true, games: games.map(stripForSave)})
         });
         return r.ok;
       }
@@ -484,9 +484,43 @@
               series: m.series || ''
             };
           });
+          await saveManifest();
           render();
         }catch(e){
           toast('扫描失败：' + e.message);
+        }finally{
+          scanBtn.disabled = false;
+          scanBtn.textContent = '扫描游戏';
+        }
+      }
+
+      async function loadFromManifest(){
+        var meta = await fetchManifest();
+        games = (meta.games || []).map(function(m){
+          return {
+            file: m.file,
+            size: m.size || 0,
+            title: m.title || deriveTitle(m.file || ''),
+            description: m.description || '',
+            cover: m.cover || '',
+            author: m.author || '',
+            series: m.series || ''
+          };
+        }).filter(function(g){ return !!g.file; });
+        render();
+        return !!meta.initialized;
+      }
+
+      async function initializeOnce(){
+        scanBtn.disabled = true;
+        scanBtn.innerHTML = '<span class="spin"></span>加载中';
+        try{
+          var initialized = await loadFromManifest();
+          if(!initialized){
+            await refresh();
+          }
+        }catch(e){
+          toast('加载失败：' + e.message);
         }finally{
           scanBtn.disabled = false;
           scanBtn.textContent = '扫描游戏';
@@ -722,7 +756,7 @@
         }
       });
 
-      refresh();
+      initializeOnce();
     </script>
   </body>
 </html>

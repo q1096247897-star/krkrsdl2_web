@@ -1,18 +1,18 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Kirikiri SDL2 Web 娓告垙搴撴湇鍔＄銆?
+"""Kirikiri SDL2 Web 游戏库服务端。
 
-闈欐€佹墭绠℃瀯寤轰骇鐗╋紙index.html / play.html / krkrsdl2.* / games/ / covers/锛夛紝
-骞舵彁渚涙父鎴忓簱涓婚〉鎵€闇€鐨?API锛?
+静态托管构建产物(index.html / play.html / krkrsdl2.* / games/ / covers/)，
+并提供游戏库主页所需的 API：
 
-  GET  /api/games      瀹炴椂鍒?games/*.xp3        -> [{file, size}]
-  GET  /api/manifest   璇?manifest.json          -> {games:[...]}
-  POST /api/manifest   鍐?manifest.json          <- {games:[...]}
-  POST /api/cover      涓婁紶灏侀潰鍒?covers/<name>  <- octet-stream + X-Filename
+  GET  /api/games      实时列 games/*.xp3        -> [{file, size}]
+  GET  /api/manifest   读 manifest.json          -> {games:[...]}
+  POST /api/manifest   写 manifest.json          <- {games:[...]}
+  POST /api/cover      上传封面到 covers/<name>  <- octet-stream + X-Filename
 
-浠呯敤鏍囧噯搴撱€傛棤閴存潈锛屼粎閫傚悎鏈湴/鍐呯綉锛屽嬁瑁告毚闇插叕缃戙€?
+仅用标准库。无鉴权，仅适合本地/内网，请勿暴露公网。
 
-鐢ㄦ硶: python tools/server.py <deploy_dir> [port]
+用法: python tools/server.py <deploy_dir> [port]
 """
 
 import json
@@ -20,20 +20,21 @@ import os
 import re
 import sys
 import threading
+import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 XP3_GLOB = "*.xp3"
 COVER_RE = re.compile(r"^[A-Za-z0-9._-]+\.(png|jpe?g|webp)$", re.IGNORECASE)
 MANIFEST_NAME = "manifest.json"
-# 支持通过环境变量指定manifest路径，默认保持原路径兼容
+# Support specifying manifest path via environment variable, keep backward compatibility
 MANIFEST_PATH = os.environ.get("MANIFEST_PATH", MANIFEST_NAME)
 
 _write_lock = threading.Lock()
 
 
 def list_games(root: Path):
-    """鎵弿 root/games/ 涓嬬殑 *.xp3锛岃繑鍥炵浉瀵归儴缃叉牴鐨勮矾寰勩€?""
+    """List all *.xp3 files under root/games/, return relative path to deploy root."""
     games_dir = root / "games"
     if not games_dir.is_dir():
         return []
@@ -41,33 +42,33 @@ def list_games(root: Path):
     for p in sorted(games_dir.rglob(XP3_GLOB)):
         if not p.is_file():
             continue
-        rel = p.relative_to(root).as_posix()  # 褰㈠ "games/sub/a.xp3"
+        rel = p.relative_to(root).as_posix()  # format: "games/sub/a.xp3"
         out.append({"file": rel, "size": p.stat().st_size})
     return out
 
 
 def atomic_write_json(path: Path, obj, retries=5, retry_delay=0.2):
-    """带重试的原子写入，适配群晖等环境的瞬态文件锁问题"""
+    """Atomic write JSON with retry for transient file lock issues (e.g. Synology DSM)."""
     tmp = path.with_suffix(path.suffix + ".tmp")
     for i in range(retries):
         try:
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(obj, f, ensure_ascii=False, indent=2)
-                os.fsync(f.fileno())  # 强制刷盘，避免文件系统缓存导致的问题
+                os.fsync(f.fileno())  # Force flush to disk, avoid filesystem cache issues
             os.replace(tmp, path)
             return
         except OSError as e:
-            # 仅对"设备或资源忙"错误重试
+            # Retry only on "device or resource busy" errors
             if e.errno == 16 and i < retries - 1:
                 time.sleep(retry_delay)
-                # 清理失败的临时文件
+                # Clean up failed temp file
                 if tmp.exists():
                     try:
                         tmp.unlink()
                     except:
                         pass
                 continue
-            # 其他错误或重试次数耗尽，清理临时文件后抛出
+            # Other errors or retry exhausted, clean up and re-raise
             if tmp.exists():
                 try:
                     tmp.unlink()
@@ -75,11 +76,17 @@ def atomic_write_json(path: Path, obj, retries=5, retry_delay=0.2):
                     pass
             raise
 
-def __init__(self, *args, root: Path, **kwargs):
+
+class Handler(SimpleHTTPRequestHandler):
+    # SimpleHTTPRequestHandler.__init__ processes the first request during initialization,
+    # so self.root must be set before calling super().__init__.
+    root: Path = None
+
+    def __init__(self, *args, root: Path, **kwargs):
         self.root = root
         super().__init__(*args, directory=str(root), **kwargs)
 
-    # ---- 闈欐€佹枃浠朵慨姝ｏ細榛樿椤靛洖 index.html ----
+    # ---- Static file fix: default to index.html ----
     def do_GET(self):
         if self.path.startswith("/api/"):
             return self.handle_api_get()
@@ -106,20 +113,20 @@ def __init__(self, *args, root: Path, **kwargs):
                 with open(p, "r", encoding="utf-8") as f:
                     return self.send_json(json.load(f))
             except (OSError, json.JSONDecodeError) as e:
-                return self.send_json({"games": [], "error": "璇诲彇 manifest 澶辫触锛? + str(e)}, 500)
+                return self.send_json({"games": [], "error": "Failed to read manifest: " + str(e)}, 500)
         self.send_error(404, "Not Found")
 
     def api_save_manifest(self):
         length = int(self.headers.get("Content-Length", 0))
         if length <= 0 or length > 8 * 1024 * 1024:
-            return self.send_json({"error": "璇锋眰浣撻暱搴︽棤鏁?}, 400)
+            return self.send_json({"error": "Invalid request body size"}, 400)
         raw = self.rfile.read(length)
         try:
             obj = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as e:
-            return self.send_json({"error": "JSON 鏃犳晥锛? + str(e)}, 400)
+            return self.send_json({"error": "Invalid JSON: " + str(e)}, 400)
         if not isinstance(obj, dict) or not isinstance(obj.get("games"), list):
-            return self.send_json({"error": "搴斾负 {games:[...]} 缁撴瀯"}, 400)
+            return self.send_json({"error": "Expected {games:[...]} structure"}, 400)
         with _write_lock:
             manifest_path = Path(MANIFEST_PATH) if Path(MANIFEST_PATH).is_absolute() else self.root / MANIFEST_PATH
             atomic_write_json(manifest_path, obj)
@@ -128,12 +135,12 @@ def __init__(self, *args, root: Path, **kwargs):
     def api_upload_cover(self):
         name = self.headers.get("X-Filename", "")
         if not COVER_RE.match(name):
-            return self.send_json({"error": "鏂囦欢鍚嶆棤鏁?}, 400)
+            return self.send_json({"error": "Invalid filename"}, 400)
         covers = self.root / "covers"
         covers.mkdir(exist_ok=True)
         length = int(self.headers.get("Content-Length", 0))
         if length <= 0 or length > 32 * 1024 * 1024:
-            return self.send_json({"error": "鏂囦欢澶у皬鏃犳晥"}, 400)
+            return self.send_json({"error": "Invalid file size"}, 400)
         data = self.rfile.read(length)
         dest = covers / name
         with _write_lock:
@@ -141,7 +148,7 @@ def __init__(self, *args, root: Path, **kwargs):
                 f.write(data)
         return self.send_json({"cover": "covers/" + name})
 
-    # ---- 杈呭姪 ----
+    # ---- Helper ----
     def send_json(self, obj, code=200):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
@@ -161,21 +168,18 @@ def main():
         sys.exit(1)
     root = Path(sys.argv[1]).resolve()
     if not root.is_dir():
-        print("閮ㄧ讲鐩綍涓嶅瓨鍦細" + str(root), file=sys.stderr)
+        print("Deploy directory does not exist: " + str(root), file=sys.stderr)
         sys.exit(1)
     port = int(sys.argv[2]) if len(sys.argv) >= 3 else 8080
     (root / "games").mkdir(exist_ok=True)
     (root / "covers").mkdir(exist_ok=True)
     server = ThreadingHTTPServer(("0.0.0.0", port), lambda *a, **k: Handler(*a, root=root, **k))
-    print("姝ｅ湪鏈嶅姟 " + str(root) + " 锛岃闂?http://localhost:" + str(port))
+    print("Serving " + str(root) + ", access at http://localhost:" + str(port))
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n姝ｅ湪鍏抽棴")
+        print("\nShutting down")
 
 
 if __name__ == "__main__":
     main()
-
-
-

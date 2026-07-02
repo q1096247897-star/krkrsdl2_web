@@ -50,6 +50,10 @@ krkrsdl2_cflags += [
 	'-DPNG_ARM_NEON_OPT=0',
 ]
 if target_machine.system() == 'emscripten'
+	krkrsdl2_src += [
+		'src/plugins/kremscripten.cpp',
+		'src/plugins/menuitem_compat.cpp',
+	]
 	krkrsdl2_cflags += [
 		'-s', 'DISABLE_EXCEPTION_CATCHING=0',
 		'-fPIC',
@@ -96,7 +100,6 @@ if target_machine.system() == 'emscripten'
 		'-s', 'ASSERTIONS=0',
 		'-s', 'STACK_OVERFLOW_CHECK=0',
 		'-s', 'MODULARIZE=1',
-		'-s', 'MAIN_MODULE=1',
 		'-s', 'EXPORT_NAME="instantiate_krkrsdl2_module"',
 		'-s', 'EXPORTED_RUNTIME_METHODS=[\'FS\', \'IDBFS\']',
 		'-O@0@'.format(get_option('optimization')),
@@ -182,7 +185,7 @@ if get_option('enable_sdl_threads') == true
 	]
 endif
 
-if get_option('enable_external_plugins') == true
+if get_option('enable_external_plugins') == true and target_machine.system() != 'emscripten'
 	krkrsdl2_cppflags += [
 		'-DKRKRSDL2_ENABLE_PLUGINS',
 	]

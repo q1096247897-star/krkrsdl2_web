@@ -13,6 +13,11 @@
 #endif
 
 #define EXPORT(hr) extern "C" DLL_EXPORT hr STDCALL
+#if defined(__EMSCRIPTEN__)
+#define KRKR_EXPORT_NAME(n) __attribute__((export_name(n)))
+#else
+#define KRKR_EXPORT_NAME(n)
+#endif
 
 #ifdef _WIN32
 
@@ -54,7 +59,7 @@ DllMain(HINSTANCE hinst, DWORD reason, LPVOID /*lpReserved*/)
 //---------------------------------------------------------------------------
 static tjs_int GlobalRefCountAtInit = 0;
 
-EXPORT(HRESULT) V2Link(iTVPFunctionExporter *exporter)
+EXPORT(HRESULT) KRKR_EXPORT_NAME("V2Link") V2Link(iTVPFunctionExporter *exporter)
 {
 #if defined(__EMSCRIPTEN__)
 	(void)exporter;
@@ -83,7 +88,7 @@ EXPORT(HRESULT) V2Link(iTVPFunctionExporter *exporter)
 	return S_OK;
 }
 //---------------------------------------------------------------------------
-EXPORT(HRESULT) V2Unlink()
+EXPORT(HRESULT) KRKR_EXPORT_NAME("V2Unlink") V2Unlink()
 {
 	// 吉里吉里側から、プラグインを解放しようとするときに呼ばれる関数
 

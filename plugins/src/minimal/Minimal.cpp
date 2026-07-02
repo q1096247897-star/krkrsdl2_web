@@ -12,7 +12,12 @@ typedef tjs_error HRESULT;
 #define STDCALL
 #endif
 
-extern "C" DLL_EXPORT HRESULT STDCALL V2Link(iTVPFunctionExporter *exporter)
+#if defined(__EMSCRIPTEN__)
+#define KRKR_EXPORT_NAME(n) __attribute__((export_name(n)))
+#else
+#define KRKR_EXPORT_NAME(n)
+#endif
+extern "C" DLL_EXPORT HRESULT STDCALL KRKR_EXPORT_NAME("V2Link") V2Link(iTVPFunctionExporter *exporter)
 {
 	// 最小验证：仅确认 V2Link 符号可被 SDL_LoadFunction 找到并调用。
 	// 不依赖 TVP 导出函数，规避 stub 生成机制。
@@ -20,7 +25,7 @@ extern "C" DLL_EXPORT HRESULT STDCALL V2Link(iTVPFunctionExporter *exporter)
 	return TJS_S_OK;
 }
 
-extern "C" DLL_EXPORT HRESULT STDCALL V2Unlink()
+extern "C" DLL_EXPORT HRESULT STDCALL KRKR_EXPORT_NAME("V2Unlink") V2Unlink()
 {
 	return TJS_S_OK;
 }

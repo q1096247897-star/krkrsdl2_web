@@ -1,4 +1,4 @@
-services:
+﻿services:
   krkr-web:
     build: .
     image: krkr-web:latest
@@ -7,7 +7,10 @@ services:
     ports:
       - "${PORT:-8080}:8080"
     volumes:
-      # games/covers/manifest 在宿主持久化，方便用 File Station 直接管理
-      - ${GAMES_DIR:-./games}:/app/games
-      - ${COVERS_DIR:-./covers}:/app/covers
-      - ${MANIFEST_FILE:-./manifest.json}:/app/manifest.json
+      # games/covers/manifest 鍦ㄥ涓绘寔涔呭寲锛屾柟渚跨敤 File Station 鐩存帴绠＄悊
+      - ${GAMES_DIR:-/volume1/game/18+}:/app/games
+      - ${COVERS_DIR:-/volume2/base/18x/krkrsdl2_web/covers}:/app/covers
+      - ${MANIFEST_DIR:-/volume2/base/18x/krkrsdl2_web}:/app/data
+    environment:
+      - MANIFEST_PATH=/app/data/manifest.json
+

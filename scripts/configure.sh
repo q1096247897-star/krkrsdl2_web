@@ -11,15 +11,15 @@ echo
 
 # 读取已有值作为默认
 cur_port="8080"
-cur_games="./games"
-cur_covers="./covers"
-cur_manifest="./manifest.json"
+cur_games="/volume1/game/18+"
+cur_covers="/volume2/base/18x/krkrsdl2_web/covers"
+cur_manifest="/volume2/base/18x/krkrsdl2_web/manifest.json"
 if [ -f "$ENV_FILE" ]; then
   eval "$(grep -E '^(PORT|GAMES_DIR|COVERS_DIR|MANIFEST_FILE)=' "$ENV_FILE" 2>/dev/null || true)"
   cur_port="${PORT:-8080}"
-  cur_games="${GAMES_DIR:-./games}"
-  cur_covers="${COVERS_DIR:-./covers}"
-  cur_manifest="${MANIFEST_FILE:-./manifest.json}"
+  cur_games="${GAMES_DIR:-/volume1/game/18+}"
+  cur_covers="${COVERS_DIR:-/volume2/base/18x/krkrsdl2_web/covers}"
+  cur_manifest="${MANIFEST_FILE:-/volume2/base/18x/krkrsdl2_web/manifest.json}"
 fi
 
 read -r -p "对外端口 [$cur_port]: " v; PORT="${v:-$cur_port}"
@@ -36,5 +36,5 @@ EOF
 
 echo
 echo "已写入 $ENV_FILE"
-echo "提示: 群晖上建议用绝对路径，如 /volume1/krkr/games"
+echo "提示: 群晖上建议用绝对路径，当前默认扫描 /volume1/game/18+，基础数据 /volume2/base/18x/krkrsdl2_web"
 echo "      修改后重启容器生效: docker compose up -d"

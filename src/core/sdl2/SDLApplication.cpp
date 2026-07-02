@@ -34,6 +34,7 @@
 
 #ifndef _WIN32
 #include <unistd.h>
+#include <dirent.h>
 #endif
 
 #ifdef __EMSCRIPTEN__
@@ -3159,7 +3160,45 @@ TShiftState TVP_TShiftState_From_uint32(tjs_uint32 state)
 	return result;
 }
 
-void TVPGetAllFontList(std::vector<tjs_string>& list) {}
+void TVPGetAllFontList(std::vector<tjs_string>& list)
+{
+#if !defined(_WIN32)
+	extern void TVPAddSystemFontToFreeType( const std::string& storage, std::vector<tjs_string>* faces );
+	extern void TVPGetSystemFontListFromFreeType( std::vector<tjs_string>& faces );
+
+	static bool scanned = false;
+	if( scanned )
+	{
+		TVPGetSystemFontListFromFreeType( list );
+		return;
+	}
+
+	const char * fontdirs[] = { "/fonts", "./fonts", "/usr/share/fonts", "/usr/local/share/fonts", nullptr };
+	for( int d = 0; fontdirs[d]; d++ )
+	{
+		DIR * dr = opendir( fontdirs[d] );
+		if( dr == nullptr ) continue;
+		struct dirent * entry;
+		while( ( entry = readdir( dr ) ) != nullptr )
+		{
+			if( entry->d_type != DT_REG && entry->d_type != DT_UNKNOWN ) continue;
+			std::string name( entry->d_name );
+			std::string::size_type extp = name.find_last_of( '.' );
+			if( extp == std::string::npos ) continue;
+			std::string ext = name.substr( extp );
+			for( std::string::size_type i = 0; i < ext.size(); i++ )
+				if( ext[i] >= 'A' && ext[i] <= 'Z' ) ext[i] += 'a' - 'A';
+			if( ext == ".ttf" || ext == ".ttc" || ext == ".otf" )
+			{
+				std::string fullpath = std::string( fontdirs[d] ) + "/" + name;
+				TVPAddSystemFontToFreeType( fullpath, &list );
+			}
+		}
+		closedir( dr );
+	}
+	scanned = true;
+#endif
+}
 
 const tjs_char *TVPGetDefaultFontName()
 {

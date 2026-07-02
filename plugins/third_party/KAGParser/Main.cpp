@@ -25,7 +25,12 @@ int WINAPI DllEntryPoint(HINSTANCE hinst, unsigned long reason, void* lpReserved
 #if !defined(__EMSCRIPTEN__)
 static tjs_int GlobalRefCountAtInit = 0;
 #endif
-extern "C" DLL_EXPORT HRESULT STDCALL V2Link(iTVPFunctionExporter *exporter)
+#if defined(__EMSCRIPTEN__)
+#define KRKR_EXPORT_NAME(n) __attribute__((export_name(n)))
+#else
+#define KRKR_EXPORT_NAME(n)
+#endif
+extern "C" DLL_EXPORT HRESULT STDCALL KRKR_EXPORT_NAME("V2Link") V2Link(iTVPFunctionExporter *exporter)
 {
 #if defined(__EMSCRIPTEN__)
 	(void)exporter;
@@ -71,7 +76,7 @@ extern "C" DLL_EXPORT HRESULT STDCALL V2Link(iTVPFunctionExporter *exporter)
 	return TJS_S_OK;
 }
 //---------------------------------------------------------------------------
-extern "C" DLL_EXPORT HRESULT STDCALL V2Unlink()
+extern "C" DLL_EXPORT HRESULT STDCALL KRKR_EXPORT_NAME("V2Unlink") V2Unlink()
 {
 	// 吉里吉里側から、プラグインを解放しようとするときに呼ばれる関数。
 

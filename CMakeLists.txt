@@ -76,7 +76,9 @@ else()
 set(EVAL_ENABLE_SDL_THREADS OFF)
 endif()
 
-if((OPTION_ENABLE_EXTERNAL_PLUGINS) AND (NOT (VITA OR NINTENDO_SWITCH)))
+if(${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
+set(EVAL_ENABLE_EXTERNAL_PLUGINS OFF)
+elseif((OPTION_ENABLE_EXTERNAL_PLUGINS) AND (NOT (VITA OR NINTENDO_SWITCH)))
 set(EVAL_ENABLE_EXTERNAL_PLUGINS ON)
 else()
 set(EVAL_ENABLE_EXTERNAL_PLUGINS OFF)
@@ -181,10 +183,11 @@ list(APPEND KRKRSDL2_DEFINITIONS
 
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
 list(APPEND KRKRSDL2_LDFLAGS
-	-sDISABLE_EXCEPTION_CATCHING=0
+	-sDISABLE_EXCEPTION_CATCHING=0  # restore exception catching now that initMethod null-pointer root cause is fixed
+#	-fwasm-exceptions  # disabled: null-function crash with vtable; trying DISABLE_EXCEPTION_CATCHING=1
 	-sEXIT_RUNTIME=1
 	-sALLOW_MEMORY_GROWTH=1
-	-sGROWABLE_ARRAYBUFFERS=0
+#	-sGROWABLE_ARRAYBUFFERS=0  # removed: not a valid setting in emscripten 3.1.24 (disabled == default)
 	-sINITIAL_MEMORY=${KRKRSDL2_EMSCRIPTEN_INITIAL_MEMORY}
 	-sFORCE_FILESYSTEM=1
 	-sASSERTIONS=0
@@ -192,6 +195,7 @@ list(APPEND KRKRSDL2_LDFLAGS
 	-sMODULARIZE=1
 	-sEXPORT_NAME="instantiate_krkrsdl2_module"
 	-sEXPORTED_RUNTIME_METHODS=['FS','IDBFS']
+	--emit-symbol-map
 	-sUSE_SDL=2
 	-lidbfs.js
 	-lopenal
@@ -200,7 +204,8 @@ list(APPEND KRKRSDL2_LDFLAGS
 	-fPIC
 )
 list(APPEND KRKRSDL2_CFLAGS
-	-sDISABLE_EXCEPTION_CATCHING=0
+	-sDISABLE_EXCEPTION_CATCHING=0  # restore exception catching now that initMethod null-pointer root cause is fixed
+#	-fwasm-exceptions  # disabled: null-function crash with vtable; trying DISABLE_EXCEPTION_CATCHING=1
 	-sUSE_SDL=2
 	-fPIC
 )
@@ -615,6 +620,12 @@ endif()
 list(APPEND KRKRSDL2_SRC
 	src/core/sdl2/SDLEntrypoint.cpp
 )
+if(${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
+list(APPEND KRKRSDL2_SRC
+	src/plugins/menuitem_compat.cpp
+	src/plugins/kagparser_compat.cpp
+)
+endif()
 
 set(KRKRSDL2_NAME krkrsdl2)
 

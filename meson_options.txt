@@ -24,7 +24,7 @@ option(
 	'enable_external_plugins',
 	type: 'boolean',
 	value: true,
-	description: 'Enable external plugins. This will make Plugins.link load a plugin instead of a no-op.'
+	description: 'Enable external plugins. This will make Plugins.link load a plugin instead of a no-op. Native plugins are disabled for Emscripten/Web builds.'
 )
 
 option(
