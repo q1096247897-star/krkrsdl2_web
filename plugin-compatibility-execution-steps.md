@@ -955,3 +955,50 @@ Get-ChildItem dist -Recurse | Select-Object FullName, Length
 11. 加 `Plugins.getList`、`unlink`、错误日志一致性。
 12. 跑真实游戏回归。
 13. 做发布缓存和版本校验。
+
+## 18. 真实游戏验证进展（2026-07-02）
+
+用户提供真实游戏 `D:/新建文件夹/Data.xp3`（477MB，519 文件）用于验证。
+
+### 18.1 已验证通过
+
+1. **引擎在 Web 端能跑起来**：XP3 成功加载（`Done. contains 519 file(s)`），TJS 引擎实例化，`Module.evalTJS('1+1')` 返回 2，TJS 可用。
+2. **预加载链路在真实引擎工作**：console 日志显示 4 个 web-shim（menu/json/fstat/addFont）`status=loaded`，Minimal.so side-module `status=loaded`，其余 side-module 404（预期，stub 阻塞）。`manifest loaded: 11 plugin(s)`、`preload complete`。
+3. **诊断日志格式**：预加载器 JS 日志格式正确（§12.2）。
+
+### 18.2 当前卡点
+
+引擎加载 XP3 后执行 `startup.tjs`，在"Done 519 files"后**静默 hang**（无后续日志、canvas 保持 300x150 默认尺寸、statusbar 隐藏）。关键观察：
+
+- `Plugins.getList()` 返回 **0 个插件** —— 说明 startup.tjs 执行到 Plugins.link 之前就 hang 或异常终止了，web-shim 的 install（C++ 分流调 evalTJS）从未被触发。
+- console 里**没有 C++ 分流日志**（`[krkrsdl2-plugin] request=... status=loading/loaded install-called`）——印证 Plugins.link 未被调用。
+- `Storages.readText("startup.tjs")` 报 `Member "readText" does not exist` —— **krkrsdl2 的 Storages 没有 readText 方法**，这与 json.js / fstat.js shim 里假设的 `Storages.readText`/`Storages.writeText` 不符，是 shim 的一个已知错误（见 §18.3）。
+
+### 18.3 待排查项（后续继续）
+
+1. **startup.tjs 内容**：需提取查看（xp3 在 `D:/新建文件夹/Data.xp3`，需 XP3 解包工具，或用引擎的 `Storages.readText` 替代方法——但该方法不存在）。startup.tjs 可能在 Plugins.link 之前就因其他原因 hang（如等待字体、缺某个 side-module 抛异常、或 KAG 系统脚本问题）。
+2. **C++ 分流日志未捕获**：我加的 `fprintf(stderr)` 日志在 preview console_logs（只抓 console.log）里没出现。emscripten stderr 默认到 console.error，preview 工具可能不抓 error 级别。验证时需用浏览器 DevTools 直接看 console.error，或改用 `Module.print`/`Debug.message` 输出。
+3. **shim 的 TJS 语义错误**（未验证，但已发现一个）：
+   - `Storages.readText` / `Storages.writeText` 在 krkrsdl2 不存在（json.js/fstat.js 假设错误）。需改用引擎实际提供的方法（可能是 `Storages.openText` / TJS 的 `Storages` 类 API 需核对 krkrsdl2 实现）。
+   - menu.js 的 `Object.defineProperty(Global.Window, ...)` TJS 可能不支持。
+   - `class MenuItem {...}` TJS 语法、`new Dictionary(...)`/`new Array(...)` 构造、`Global.Window` 可达性均未验证。
+4. **web-shim install 从未被调用**：因为 Plugins.link 没被调用。需先解决 startup.tjs hang 的问题，才能验证 web-shim install。
+
+### 18.4 继续工作的起点
+
+1. 用浏览器 DevTools 打开 `http://localhost:8099/play.html?data=games/Data.xp3`，看 console.error 级别日志和异常堆栈，定位 startup.tjs hang 的根因。
+2. 解包 Data.xp3（用 GARbro 或 krkrrel）提取 startup.tjs / system/Configure.tjs，确认 Plugins.link 调用集，核对 manifest 覆盖度（完成 task #22 扫描）。
+3. 修正 shim 的 `Storages.readText`/`writeText` 假设，核对 krkrsdl2 的 Storages 实际 API（看 `external/krkrz/base/StorageIntf.cpp` 或 `src/core/base/sdl2/StorageImpl.cpp`）。
+4. startup.tjs hang 解决后，web-shim install 才会被触发，届时验证 install 的 evalTJS 是否报错。
+
+### 18.5 部署状态
+
+`D:/新建文件夹/krkrsdl2_web/.test-deploy/` 已就绪（gitignore，不入库）：
+- 最新 wasm（7789577 字节，含 step 10 诊断日志 + step 11 分流）
+- `games/Data.xp3`（477MB，cp 自 `D:/新建文件夹/Data.xp3`）
+- `plugins/shims/{json,fstat,menu,addFont}.js` + `plugins/manifest.json`
+- `plugin/Minimal.so`
+
+启动：`python tools/server.py .test-deploy 8099`，访问 `play.html?data=games/Data.xp3`。
+
+
