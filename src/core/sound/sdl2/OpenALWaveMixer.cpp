@@ -5,8 +5,14 @@
 #include "OpenALWaveMixer.h"
 #include "WaveImpl.h"
 #include "DebugIntf.h"
+#include "MsgIntf.h"
 #include "SysInitIntf.h"
 #include <unordered_set>
+#include <algorithm>
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 #ifndef TVP_FAUDIO_IMPLEMENT
 class tTVPAudioRenderer;
@@ -26,6 +32,77 @@ static tTVPAudioRenderer *TVPAudioRenderer;
 
 #ifndef AL_FORMAT_STEREO_FLOAT32
 #define AL_FORMAT_STEREO_FLOAT32 0x10011
+#endif
+
+#ifdef __EMSCRIPTEN__
+static void TVPResumeOpenALAudioContexts()
+{
+	EM_ASM({
+		var resumeContext = function(audioCtx) {
+			if (!audioCtx || audioCtx.state !== 'suspended' || !audioCtx.resume) return;
+			try {
+				var result = audioCtx.resume();
+				if (result && result.catch) result.catch(function() {});
+			} catch (e) {}
+		};
+
+		try {
+			if (typeof AL !== 'undefined' && AL.contexts) {
+				Object.keys(AL.contexts).forEach(function(id) {
+					var ctx = AL.contexts[id];
+					if (ctx) resumeContext(ctx.audioCtx);
+				});
+			}
+			if (typeof Module !== 'undefined' && Module.SDL2) {
+				resumeContext(Module.SDL2.audioContext);
+			}
+		} catch (e) {}
+	});
+}
+
+static void TVPInstallOpenALUnlockHandler()
+{
+	static bool installed = false;
+	if (installed) return;
+	installed = true;
+
+	EM_ASM({
+		if (typeof window === 'undefined') return;
+		if (Module.__tvpOpenALUnlockInstalled) return;
+		Module.__tvpOpenALUnlockInstalled = true;
+
+		var unlock = function() {
+			var resumeContext = function(audioCtx) {
+				if (!audioCtx || audioCtx.state !== 'suspended' || !audioCtx.resume) return;
+				try {
+					var result = audioCtx.resume();
+					if (result && result.catch) result.catch(function() {});
+				} catch (e) {}
+			};
+
+			try {
+				if (typeof AL !== 'undefined' && AL.contexts) {
+					Object.keys(AL.contexts).forEach(function(id) {
+						var ctx = AL.contexts[id];
+						if (ctx) resumeContext(ctx.audioCtx);
+					});
+				}
+				if (Module.SDL2) resumeContext(Module.SDL2.audioContext);
+			} catch (e) {}
+		};
+
+		'pointerdown mousedown mouseup touchstart touchend keydown click'.split(' ').forEach(function(eventName) {
+			window.addEventListener(eventName, unlock, { passive: true });
+		});
+		if (typeof document !== 'undefined' && document.addEventListener) {
+			document.addEventListener('visibilitychange', unlock, { passive: true });
+		}
+		unlock();
+	});
+}
+#else
+static void TVPResumeOpenALAudioContexts() {}
+static void TVPInstallOpenALUnlockHandler() {}
 #endif
 
 class tTVPSoundBuffer : public iTVPSoundBuffer
@@ -54,14 +131,18 @@ public:
 		_bufferIds = new ALuint[bufcount];
 		_bufferIds2 = new ALuint[bufcount];
 		_bufferSize = new tjs_uint[bufcount];
+		std::fill(_bufferSize, _bufferSize + bufcount, 0);
 		_format = desired;
 		_volume = 1.0f;
 		_sourcePos[0] = 0.0f;
 		_sourcePos[1] = 0.0f;
 		_sourcePos[2] = 0.0f;
 		alGenSources(1, &_alSource);
+		CheckALError("alGenSources");
 		alGenBuffers(_bufferCount, _bufferIds);
+		CheckALError("alGenBuffers");
 		alSourcef(_alSource, AL_GAIN, 0.0f);
+		CheckALError("alSourcef AL_GAIN");
 		has_format = true;
 		switch (desired.Channels)
 		{
@@ -164,44 +245,48 @@ public:
 		{
 			return;
 		}
-		tTJSCriticalSectionHolder holder(_buffer_mtx);
 
-		ALint processed = 0;
-		alGetSourcei(_alSource, AL_BUFFERS_PROCESSED, &processed);
-		if (processed > 0)
 		{
-			alSourceUnqueueBuffers(_alSource, processed, _bufferIds2);
-			CheckALError("alSourceUnqueueBuffers");
-			for (int i = 0; i < processed; i += 1)
+			tTJSCriticalSectionHolder holder(_buffer_mtx);
+
+			ALint processed = 0;
+			alGetSourcei(_alSource, AL_BUFFERS_PROCESSED, &processed);
+			if (processed > 0)
 			{
-				for (int j = 0; j < _bufferCount; j += 1)
+				alSourceUnqueueBuffers(_alSource, processed, _bufferIds2);
+				CheckALError("alSourceUnqueueBuffers");
+				for (int i = 0; i < processed; i += 1)
 				{
-					if (_bufferIds[j] == _bufferIds2[i])
+					for (int j = 0; j < _bufferCount; j += 1)
 					{
-						_sentSamples += _bufferSize[j] / _frame_size;
-						break;
+						if (_bufferIds[j] == _bufferIds2[i])
+						{
+							_sentSamples += _bufferSize[j] / _frame_size;
+							break;
+						}
 					}
 				}
 			}
-		}
 
-		ALint queued = 0;
-		alGetSourcei(_alSource, AL_BUFFERS_QUEUED, &queued);
+			ALint queued = 0;
+			alGetSourcei(_alSource, AL_BUFFERS_QUEUED, &queued);
 
-		if (queued >= _bufferCount)
-		{
-			return;
+			if (queued >= _bufferCount)
+			{
+				return;
+			}
+			_bufferIdx += 1;
+			if (_bufferIdx >= _bufferCount)
+			{
+				_bufferIdx = 0;
+			}
+			ALuint bufid = _bufferIds[_bufferIdx];
+			_bufferSize[_bufferIdx] = len;
+			alBufferData(bufid, _alFormat, buf, len, _format.SamplesPerSec);
+			CheckALError("alBufferData");
+			alSourceQueueBuffers(_alSource, 1, &bufid);
+			CheckALError("alSourceQueueBuffers");
 		}
-		_bufferIdx += 1;
-		if (_bufferIdx >= _bufferCount)
-		{
-			_bufferIdx = 0;
-		}
-		ALuint bufid = _bufferIds[_bufferIdx];
-		alBufferData(bufid, _alFormat, buf, len, _format.SamplesPerSec);
-		CheckALError("alBufferData");
-		alSourceQueueBuffers(_alSource, 1, &bufid);
-		CheckALError("alSourceQueueBuffers");
 		EnsurePlayState();
 	}
 
@@ -213,6 +298,7 @@ public:
 		CheckALError("alGetSourcei AL_SOURCE_STATE");
 		if (_playing)
 		{
+			TVPResumeOpenALAudioContexts();
 			alSourcef(_alSource, AL_GAIN, _volume);
 			CheckALError("alSourcef AL_GAIN");
 			alSourcefv(_alSource, AL_POSITION, _sourcePos);
@@ -266,6 +352,7 @@ public:
 	void Play() override
 	{
 		_playing = true;
+		TVPResumeOpenALAudioContexts();
 		EnsurePlayState();
 	}
 
@@ -319,7 +406,7 @@ public:
 		ALint queued = 0;
 		alGetSourcei(_alSource, AL_BUFFERS_PROCESSED, &processed);
 		alGetSourcei(_alSource, AL_BUFFERS_QUEUED, &queued);
-		return queued - processed;
+		return std::max(0, queued - processed);
 	}
 
 	tjs_uint GetLatencySamples() override
@@ -381,20 +468,44 @@ public:
 	}
 	bool Init()
 	{
+		TVPInstallOpenALUnlockHandler();
 		_device = alcOpenDevice(nullptr);
 		if (!_device)
 		{
+			TVPAddImportantLog(TJS_W("OpenAL: alcOpenDevice failed."));
 			return false;
 		}
 
 		_context = alcCreateContext(_device, nullptr);
+		if (!_context)
+		{
+			TVPAddImportantLog(TJS_W("OpenAL: alcCreateContext failed."));
+			alcCloseDevice(_device);
+			_device = nullptr;
+			return false;
+		}
 		alcMakeContextCurrent(_context);
+		ALCenum err = alcGetError(_device);
+		if (err != ALC_NO_ERROR)
+		{
+			TVPAddImportantLog(ttstr(TJS_W("OpenAL: alcMakeContextCurrent failed. Error ")) + TJSInt32ToHex(err, 0));
+			alcDestroyContext(_context);
+			_context = nullptr;
+			alcCloseDevice(_device);
+			_device = nullptr;
+			return false;
+		}
 
+		TVPResumeOpenALAudioContexts();
 		return true;
 	}
 
 	virtual tTVPSoundBuffer* CreateStream(tTVPWaveFormat &fmt, int bufcount)
 	{
+		if (!_context)
+		{
+			return nullptr;
+		}
 		tTVPSoundBuffer* s = new tTVPSoundBuffer(fmt, bufcount);
 		_streams.emplace(s);
 		return s;
@@ -409,6 +520,10 @@ public:
 void tTVPSoundBuffer::CheckALError(const char *funcname)
 {
 	ALCcontext *ctx = ((tTVPAudioRenderer*)TVPAudioRenderer)->GetContext();
+	if (!ctx)
+	{
+		return;
+	}
 	if (alcGetCurrentContext() != ctx)
 	{
 		alcMakeContextCurrent(ctx);
@@ -427,7 +542,11 @@ static tTVPAudioRenderer *CreateAudioRenderer()
 {
 	tTVPAudioRenderer *renderer = nullptr;
 	renderer = new tTVPAudioRenderer;
-	renderer->Init();
+	if (!renderer->Init())
+	{
+		delete renderer;
+		return nullptr;
+	}
 	return renderer;
 }
 #endif
@@ -438,6 +557,10 @@ void TVPInitDirectSound()
 	if (!TVPAudioRenderer)
 	{
 		TVPAudioRenderer = CreateAudioRenderer();
+		if (!TVPAudioRenderer)
+		{
+			TVPThrowExceptionMessage(TJS_W("Cannot initialize OpenAL audio renderer."));
+		}
 	}
 #endif
 }
@@ -450,7 +573,10 @@ iTVPSoundBuffer* TVPCreateSoundBuffer(tTVPWaveFormat &fmt, int bufcount)
 {
 	iTVPSoundBuffer* stream = nullptr;
 #ifndef TVP_FAUDIO_IMPLEMENT
-	stream = TVPAudioRenderer->CreateStream(fmt, bufcount);
+	if (TVPAudioRenderer)
+	{
+		stream = TVPAudioRenderer->CreateStream(fmt, bufcount);
+	}
 #endif
 	return stream;
 }

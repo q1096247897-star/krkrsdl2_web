@@ -340,6 +340,17 @@ void TVPRegisterTSSWaveDecoderCreator()
 	}
 }
 //---------------------------------------------------------------------------
+extern void TVPRegisterVorbisDecoderCreator();
+static bool TVPVorbisWaveDecoderCreatorRegistered = false;
+void TVPRegisterVorbisWaveDecoderCreator()
+{
+	if(!TVPVorbisWaveDecoderCreatorRegistered)
+	{
+		TVPRegisterVorbisDecoderCreator();
+		TVPVorbisWaveDecoderCreatorRegistered = true;
+	}
+}
+//---------------------------------------------------------------------------
 
 
 
@@ -1799,6 +1810,9 @@ void tTVPWaveSoundBufferThread::InternalTrigger()
 void tTVPWaveSoundBufferThread::Start()
 {
 	TVPPrimaryBufferPlayingByProgram = true;
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+	TVPPrimarySoundBufferPlaying = true;
+#endif
 	Event.Set();
 }
 //---------------------------------------------------------------------------
@@ -2070,6 +2084,7 @@ tTJSNI_WaveSoundBuffer::tTJSNI_WaveSoundBuffer()
 {
 	TVPInitSoundOptions();
 	TVPRegisterTSSWaveDecoderCreator();
+	TVPRegisterVorbisWaveDecoderCreator();
 #if 0
 #ifdef TVP_SUPPORT_OLD_WAVEUNPACKER
 	TVPRegisterWaveUnpackerCreator();
@@ -3082,10 +3097,18 @@ void tTJSNI_WaveSoundBuffer::StartPlay()
 		BufferPlaying = true;
 		FillL2Buffer(true, false);
 		FillBuffer(true, false);
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+		for (int i = 1; i < TVPAL_BUFFER_COUNT; i += 1)
+		{
+			FillL2Buffer(false, false);
+			FillBuffer(false, false);
+		}
+#else
 #if 0
 		FillBuffer(false, false);
 		FillBuffer(false, false);
 		FillBuffer(false, false);
+#endif
 #endif
 
 		// start playing

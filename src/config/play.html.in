@@ -438,11 +438,18 @@
       var statusElement = document.getElementById('status');
       var progressElement = document.getElementById('progress');
       var spinnerElement = document.getElementById('spinner');
+      var runtimeCacheBust = '20260703-audio2';
 
       var Module = {
         arguments: ['/data.xp3'],
         preRun: [],
         postRun: [],
+        locateFile: function(path, prefix) {
+          if (path === '@KRKRSDL2_NAME@.wasm') {
+            return prefix + path + '?v=' + runtimeCacheBust;
+          }
+          return prefix + path;
+        },
         print: (function() {
           return function(text) {
             console.log(text);
@@ -512,13 +519,38 @@
       document.getElementById('canvas').addEventListener('mouseenter', function(e) { window.focus() });
       document.getElementById('canvas').addEventListener('click', function(e) { window.focus() });
 
+      function unlockAudioContexts() {
+        try {
+          if (Module && Module.SDL2 && Module.SDL2.audioContext && Module.SDL2.audioContext.state === 'suspended') {
+            Module.SDL2.audioContext.resume();
+          }
+        } catch (e) {}
+        try {
+          if (typeof AL !== 'undefined' && AL.contexts) {
+            Object.keys(AL.contexts).forEach(function(id) {
+              var ctx = AL.contexts[id];
+              if (ctx && ctx.audioCtx && ctx.audioCtx.state === 'suspended') {
+                ctx.audioCtx.resume();
+              }
+            });
+          }
+        } catch (e) {}
+      }
+
+      ['pointerdown', 'mousedown', 'touchstart', 'keydown', 'click'].forEach(function(eventName) {
+        document.addEventListener(eventName, unlockAudioContexts, { passive: true });
+      });
+      Module['preMainLoop'] = function() {
+        unlockAudioContexts();
+      };
+
       function onLoadMainJs() {
         instantiate_krkrsdl2_module(Module);
       }
 
       function loadMainJs() {
         var script = document.createElement('script');
-        script.src = "@KRKRSDL2_NAME@.js";
+        script.src = "@KRKRSDL2_NAME@.js?v=" + runtimeCacheBust;
         script.onload = onLoadMainJs;
         document.body.appendChild(script);
       }
@@ -617,9 +649,33 @@
         Module['addRunDependency'](url);
       }
 
+      function downloadAsset(url, dest)
+      {
+        Module['addRunDependency'](url);
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.responseType = 'arraybuffer';
+        xhr.onload = function(event) {
+          if (xhr.status == 200 || xhr.status == 304 || xhr.status == 206 || (xhr.status == 0 && xhr.response)) {
+            Module['FS'].writeFile(dest, new Uint8Array(xhr.response), { canOwn: true });
+          } else {
+            if (Module['print']) Module['print']('resource download failed: ' + url + ' (status ' + xhr.status + ')');
+          }
+          Module['removeRunDependency'](url);
+        };
+        xhr.onerror = function(event) {
+          if (Module['print']) Module['print']('resource download error: ' + url);
+          Module['removeRunDependency'](url);
+        };
+        xhr.send(null);
+      }
+
       function runWithFS() {
         Module['FS'].mkdir('/libsdl');
         Module['FS'].mkdir('/libsdl/krkrsdl2');
+        Module['FS'].mkdir('/fonts');
+
+        downloadAsset('fonts/default.ttc', '/fonts/default.ttc');
 
         // 下载 data.xp3（或通过 ?data= 指定的文件）
         xhrDownloadFile('data.xp3', '/data.xp3');
@@ -648,7 +704,7 @@
         // 当前浏览器不支持 WebAssembly，先加载 .wasm.js 这个 JavaScript 回退实现，
         // 再加载主 JS 运行时。
         var wasm2js = document.createElement('script');
-        wasm2js.src = '@KRKRSDL2_NAME@.wasm.js';
+        wasm2js.src = '@KRKRSDL2_NAME@.wasm.js?v=' + runtimeCacheBust;
         wasm2js.onload = loadMainJs;
         document.body.appendChild(wasm2js);
       } else {
