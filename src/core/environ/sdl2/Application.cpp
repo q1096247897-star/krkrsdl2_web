@@ -613,7 +613,11 @@ void tTVPApplication::CheckConsole() {
 		}
 	}
 #else
+#ifdef __EMSCRIPTEN__
+	is_attach_console_ = true;
+#else
 	is_attach_console_ = isatty(fileno(stdout)) != 0;
+#endif
 #endif
 	for( int i = 0; i < ArgC; i++ ) {
 		if(!TJS_strcmp(ArgV[i], TJS_W("-forceoutputlogtoconsole"))) {

@@ -2418,6 +2418,44 @@ TJS_BEGIN_NATIVE_PROP_DECL(displayRotate)
 }
 TJS_END_NATIVE_PROP_DECL_OUTER(cls, displayRotate)
 //---------------------------------------------------------------------------
+TJS_BEGIN_NATIVE_PROP_DECL(innerSunken)
+{
+	TJS_BEGIN_NATIVE_PROP_GETTER
+	{
+		TJS_GET_NATIVE_INSTANCE(/*var. name*/_this, /*var. type*/tTJSNI_Window);
+		*result = (tjs_int)0;
+		return TJS_S_OK;
+	}
+	TJS_END_NATIVE_PROP_GETTER
+
+	TJS_BEGIN_NATIVE_PROP_SETTER
+	{
+		TJS_GET_NATIVE_INSTANCE(/*var. name*/_this, /*var. type*/tTJSNI_Window);
+		return TJS_S_OK;
+	}
+	TJS_END_NATIVE_PROP_SETTER
+}
+TJS_END_NATIVE_PROP_DECL_OUTER(cls, innerSunken)
+//---------------------------------------------------------------------------
+TJS_BEGIN_NATIVE_PROP_DECL(showScrollBars)
+{
+	TJS_BEGIN_NATIVE_PROP_GETTER
+	{
+		TJS_GET_NATIVE_INSTANCE(/*var. name*/_this, /*var. type*/tTJSNI_Window);
+		*result = (tjs_int)0;
+		return TJS_S_OK;
+	}
+	TJS_END_NATIVE_PROP_GETTER
+
+	TJS_BEGIN_NATIVE_PROP_SETTER
+	{
+		TJS_GET_NATIVE_INSTANCE(/*var. name*/_this, /*var. type*/tTJSNI_Window);
+		return TJS_S_OK;
+	}
+	TJS_END_NATIVE_PROP_SETTER
+}
+TJS_END_NATIVE_PROP_DECL_OUTER(cls, showScrollBars)
+//---------------------------------------------------------------------------
 
 #if 0
 	TVPGetDisplayColorFormat(); // this will be ran only once here

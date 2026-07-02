@@ -69,11 +69,20 @@
   function ensureShimRegistry(Module) {
     var reg = Module.krkrPluginShim;
     if (!reg) {
+      var entries = {};
+      // Normalize plugin name: strip dir prefix (e.g. plugin/), lowercase.
+      // Game writes Plugins.link("plugin/menu.dll"); manifest/shim use "menu.dll".
+      function norm(n) {
+        var s = String(n).replace(/^\/+/, "");
+        var slash = s.lastIndexOf("/");
+        if (slash >= 0) s = s.slice(slash + 1);
+        return s.toLowerCase();
+      }
       reg = {
-        _entries: {},
-        register: function (name, api) { this._entries[name] = api; },
-        has: function (name) { return Object.prototype.hasOwnProperty.call(this._entries, name); },
-        get: function (name) { return this._entries[name] || null; }
+        _entries: entries,
+        register: function (name, api) { entries[norm(name)] = api; },
+        has: function (name) { return Object.prototype.hasOwnProperty.call(entries, norm(name)); },
+        get: function (name) { return entries[norm(name)] || null; }
       };
       Module.krkrPluginShim = reg;
     }

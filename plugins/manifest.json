@@ -217,8 +217,8 @@
         "LayerExImage.dll"
       ],
       "webModule": "plugin/layerExImage.so",
-      "sourceRepo": "https://github.com/wtnbgo/layerExImage",
-      "license": "to-be-confirmed",
+      "sourceRepo": "https://github.com/wamsoft/layerExImage.git",
+      "license": "CxImage zlib-like / source license in LICENSE.TXT; confirm before redistribution",
       "implementationType": "side-module",
       "compatLevel": "B",
       "priority": "P1",
@@ -232,8 +232,8 @@
         "LayerBitmap"
       ],
       "testScript": "plugins/tests/layerExImage_smoke.tjs",
-      "status": "planned",
-      "implementation": "编译图像处理逻辑为 side module，适配 Layer buffer 读写；一期只保证常用 API，复杂效果后续扩展。"
+      "status": "builds",
+      "implementation": "已拉取 wamsoft/layerExImage 源码并接入 Emscripten side-module 构建；同时拉取 ncbind 作为绑定层。Web 下跳过桌面 TVPInitImportStub/TVPUninitImportStub，补齐非 Windows RGBQUAD 类型。当前 build-web 可产出 plugin/layerExImage.so。待真实游戏验证：Plugins.link(\"layerExImage.dll\") 后 NCB_ATTACH_CLASS 是否成功把 light/colorize/modulate/noise/generateWhiteNoise/gaussianBlur 挂到 Layer，Layer buffer 写入和 update 区域是否正确。"
     },
     {
       "dllName": "Minimal.dll",

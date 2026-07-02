@@ -1001,4 +1001,93 @@ Get-ChildItem dist -Recurse | Select-Object FullName, Length
 
 启动：`python tools/server.py .test-deploy 8099`，访问 `play.html?data=games/Data.xp3`。
 
+## 19. layerExImage 接入进展（2026-07-02）
+
+### 19.1 本次补充内容
+
+用户补充了真实源码地址：
+
+```text
+https://github.com/wamsoft/layerExImage.git
+```
+
+本次已完成：
+
+- 拉取 `wamsoft/layerExImage` 到 `plugins/third_party/layerExImage`。
+- 拉取 `wamsoft/ncbind` 到 `plugins/third_party/ncbind`，作为 `layerExImage` 的 TJS native binding 层。
+- 在 `plugins/CMakeLists.txt` 中接入 `layerExImage` side-module 构建。
+- 给非 Windows / Emscripten 补齐 `RGBQUAD` 类型。
+- 在 Emscripten 下跳过 `ncbind` 的桌面插件 stub 调用：`TVPInitImportStub`、`TVPUninitImportStub`、`TVPPluginGlobalRefCount`。
+- `cmake --build build-web --verbose` 已能产出：
+
+```text
+build-web/plugins/web/plugin/layerExImage.so
+```
+
+### 19.2 当前遇到的问题
+
+`layerExImage` 和 `KAGParser` 的形态不同：
+
+- `KAGParser` 自己手写 `V2Link`，注册 `KAGParser` 类。
+- `layerExImage` 通过 `ncbind.hpp` / `ncbind.cpp` 自动注册，把方法 attach 到 TJS 的 `Layer` 类。
+
+因此 `layerExImage.so` 能编译只是第一阶段完成，还必须在浏览器里验证 `V2Link` 调用后 `NCB_ATTACH_CLASS_WITH_HOOK(layerExImage, Layer)` 是否实际生效。
+
+另外，本次真实游戏控制台错误已经明确：
+
+```text
+Cannot load Plugin layerExImage.dll
+trace : initialize.tjs(...) <-- startup.tjs(...)
+```
+
+含义是 `LayerEx.tjs` 中的 `Plugins.link("layerExImage.dll")` 没有找到可加载实现。当前修复的直接目标就是让 `/plugin/layerExImage.so` 进入部署目录，并让 `Plugins.link("layerExImage.dll")` 能加载它。
+
+### 19.3 下一步验证内容
+
+重建并同步 `.test-deploy` 后，需要验证：
+
+1. 预加载日志出现：
+
+```text
+[krkrsdl2-plugin] request=layerExImage.dll type=side-module status=loaded module=/plugin/layerExImage.so
+```
+
+2. 游戏执行到 `LayerEx.tjs` 时不再报：
+
+```text
+Cannot load Plugin layerExImage.dll
+```
+
+3. `Plugins.getList()` 包含 `layerExImage.dll` 或等效加载名。
+4. 在 TJS 侧验证 `Layer` 已挂上以下方法：
+
+```text
+light
+colorize
+modulate
+noise
+generateWhiteNoise
+gaussianBlur
+```
+
+5. 用真实游戏继续跑过 `system/Initialize.tjs`，确认是否出现下一个缺失插件或 TJS shim 语法错误。
+6. 如果 `layerExImage.so` 加载成功但方法不存在，下一步检查 `ncbind` 的 attach 逻辑是否拿到了 `Layer` 类对象。
+7. 如果方法存在但调用崩溃，下一步检查 `mainImageBufferForWrite`、`mainImageBufferPitch`、`clipLeft/clipTop/clipWidth/clipHeight` 在 Web 端返回值是否和桌面一致。
+
+### 19.4 构建和部署命令
+
+构建：
+
+```powershell
+cmake --build build-web --verbose
+```
+
+同步测试部署：
+
+```powershell
+Copy-Item build-web\krkrsdl2.js,build-web\krkrsdl2.wasm,build-web\index.html,build-web\play.html,build-web\plugin-preload.js .test-deploy\ -Force
+Copy-Item build-web\plugins\web\plugin\*.so .test-deploy\plugin\ -Force
+Copy-Item plugins\manifest.json .test-deploy\plugins\manifest.json -Force
+Copy-Item plugins\shims\*.js .test-deploy\plugins\shims\ -Force
+```
 

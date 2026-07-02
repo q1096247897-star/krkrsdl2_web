@@ -22,11 +22,17 @@ int WINAPI DllEntryPoint(HINSTANCE hinst, unsigned long reason, void* lpReserved
 }
 #endif
 //---------------------------------------------------------------------------
+#if !defined(__EMSCRIPTEN__)
 static tjs_int GlobalRefCountAtInit = 0;
+#endif
 extern "C" DLL_EXPORT HRESULT STDCALL V2Link(iTVPFunctionExporter *exporter)
 {
+#if defined(__EMSCRIPTEN__)
+	(void)exporter;
+#else
 	// スタブの初期化(必ず記述する)
 	TVPInitImportStub(exporter);
+#endif
 
 	tTJSVariant val;
 
@@ -53,7 +59,9 @@ extern "C" DLL_EXPORT HRESULT STDCALL V2Link(iTVPFunctionExporter *exporter)
 
 
 	// この時点での TVPPluginGlobalRefCount の値を
+#if !defined(__EMSCRIPTEN__)
 	GlobalRefCountAtInit = TVPPluginGlobalRefCount;
+#endif
 	// として控えておく。TVPPluginGlobalRefCount はこのプラグイン内で
 	// 管理されている tTJSDispatch 派生オブジェクトの参照カウンタの総計で、
 	// 解放時にはこれと同じか、これよりも少なくなってないとならない。
@@ -71,7 +79,9 @@ extern "C" DLL_EXPORT HRESULT STDCALL V2Unlink()
 	// この時点で E_FAIL を返すようにする。
 	// ここでは、TVPPluginGlobalRefCount が GlobalRefCountAtInit よりも
 	// 大きくなっていれば失敗ということにする。
+#if !defined(__EMSCRIPTEN__)
 	if(TVPPluginGlobalRefCount > GlobalRefCountAtInit) return TJS_E_FAIL;
+#endif
 		// E_FAIL が帰ると、Plugins.unlink メソッドは偽を返す
 
 	/*
@@ -100,8 +110,10 @@ extern "C" DLL_EXPORT HRESULT STDCALL V2Unlink()
 	// - global を Release する
 	if(global) global->Release();
 
+#if !defined(__EMSCRIPTEN__)
 	// スタブの使用終了(必ず記述する)
 	TVPUninitImportStub();
+#endif
 
 	return TJS_S_OK;
 }

@@ -108,9 +108,20 @@ krkr_plugin_side_module(Minimal
 #	third_party/saveStruct/saveStruct.cpp
 # )
 #
-# krkr_plugin_side_module(layerExImage
-#	third_party/layerExImage/layerExImage.cpp
-# )
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/layerExImage/Main.cpp")
+krkr_plugin_side_module(layerExImage
+	third_party/layerExImage/LayerExImage.cpp
+	third_party/layerExImage/Main.cpp
+	third_party/ncbind/ncbind.cpp
+)
+target_compile_definitions(layerExImage PRIVATE
+	TVP_PLUGIN_NAME=layerExImage
+)
+target_include_directories(layerExImage PRIVATE
+	${CMAKE_CURRENT_SOURCE_DIR}/third_party/layerExImage
+	${CMAKE_CURRENT_SOURCE_DIR}/third_party/ncbind
+)
+endif()
 
 # 把编译出的 .so 收集到 plugins/web/plugin/，供 plugin-preload.js 取用。
 # 仅在存在已构建的 side-module 目标时启用。
