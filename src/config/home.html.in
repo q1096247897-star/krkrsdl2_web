@@ -164,6 +164,33 @@
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         word-break: break-all; line-height: 1.4;
       }
+      #toolbar {
+        display: flex; align-items: center; gap: 24px;
+        padding: 8px 24px;
+        background: rgba(15, 17, 21, 0.92);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid #23262d;
+        font-size: 13px;
+        position: sticky; top: 60px; z-index: 9;
+      }
+      #toolbar .group { display: flex; align-items: center; gap: 6px; }
+      #toolbar .label { color: #6b717c; font-size: 12px; margin-right: 2px; }
+      .tab, .sortBtn {
+        padding: 5px 12px;
+        background: transparent;
+        border: 1px solid #2c3038;
+        border-radius: 6px;
+        color: #9aa0aa;
+        font-size: 12px;
+        cursor: pointer;
+        transition: background .12s, color .12s, border-color .12s;
+        white-space: nowrap;
+      }
+      .tab:hover, .sortBtn:hover { background: #1b1e25; color: #e6e6e6; }
+      .tab.active, .sortBtn.active {
+        background: #2d6cf0; border-color: #2d6cf0; color: #fff;
+      }
+      .sortBtn .arrow { margin-left: 4px; font-size: 10px; }
       .editBtn {
         position: absolute;
         top: 8px; right: 8px;
@@ -270,6 +297,22 @@
       <button id="scanBtn">扫描游戏</button>
     </div>
 
+    <div id="toolbar">
+      <div class="group">
+        <span class="label">分组</span>
+        <button class="tab active" data-dim="series">系列</button>
+        <button class="tab" data-dim="author">作者</button>
+        <button class="tab" data-dim="flat">无</button>
+      </div>
+      <div class="group">
+        <span class="label">排序</span>
+        <button class="sortBtn active" data-sort="default">默认</button>
+        <button class="sortBtn" data-sort="title">标题</button>
+        <button class="sortBtn" data-sort="author">作者</button>
+        <button class="sortBtn" data-sort="size">大小</button>
+      </div>
+    </div>
+
     <div id="grid"></div>
     <div id="empty" style="display:none">
       <div class="big">未发现游戏</div>
@@ -310,7 +353,9 @@
       var games = [];
       var editing = null;
       var pendingCoverPath = null;
-      var currentSeries = null; // null=汇总页；字符串=查看该系列
+      var view = { dim: 'series', name: null }; // dim: series|author|flat; name=null=汇总页
+      var sortKey = 'default';   // default|title|author|size
+      var sortDir = 'asc';
 
       var $ = function(id){ return document.getElementById(id); };
       var grid = $('grid'), empty = $('empty'), search = $('search');
@@ -349,21 +394,30 @@
         $('seriesList').innerHTML = html;
       }
 
-      // 按 series 归集：返回 { names: [首次出现顺序的系列名], groups: {name: [games]}, ungrouped: [games] }
-      function groupBySeries(list){
+      // 按 keyFn 归集：返回 { names: [首次出现顺序的键], groups: {key: [games]}, ungrouped: [games] }
+      function groupBy(list, keyFn){
         var names = [];
         var groups = {};
         var ungrouped = [];
         list.forEach(function(g){
-          if(g.series){
-            if(!groups[g.series]){ groups[g.series] = []; names.push(g.series); }
-            groups[g.series].push(g);
+          var k = keyFn(g);
+          if(k){
+            if(!groups[k]){ groups[k] = []; names.push(k); }
+            groups[k].push(g);
           }else{
             ungrouped.push(g);
           }
         });
         return { names: names, groups: groups, ungrouped: ungrouped };
       }
+      function dimKeyFn(dim){
+        return dim === 'series'
+          ? function(g){ return g.series || ''; }
+          : function(g){ return g.author || ''; };
+      }
+      function dimGroupName(dim){ return dim === 'series' ? '未分组' : '未知作者'; }
+      function dimLabel(dim){ return dim === 'series' ? '系列' : '作者'; }
+      function dimField(dim){ return dim === 'series' ? 'series' : 'author'; }
 
       async function fetchGames(){
         var r = await fetch('api/games', {cache:'no-store'});
@@ -458,7 +512,7 @@
           + '</div></div>';
       }
 
-      function seriesCardHtml(name, members){
+      function groupCardHtml(name, members){
         var covers = members.filter(function(g){ return !!g.cover; }).slice(0, 4);
         var collageHtml, singleCls = '';
         if(!covers.length){
@@ -471,7 +525,7 @@
             return '<img class="cell" src="' + escapeHtml(g.cover) + '" alt="" loading="lazy">';
           }).join('');
         }
-        return '<div class="card seriesCard" data-series="' + escapeHtml(name) + '">'
+        return '<div class="card seriesCard" data-group="' + escapeHtml(name) + '">'
           + '<div class="collage' + singleCls + '">' + collageHtml + '</div>'
           + '<span class="badge">' + members.length + ' 款</span>'
           + '<div class="body">'
@@ -480,7 +534,50 @@
           + '</div></div>';
       }
 
+      function applySort(list){
+        if(sortKey === 'default') return list;
+        var sorted = list.slice().sort(function(a, b){
+          var va, vb;
+          if(sortKey === 'size'){
+            va = a.size || 0; vb = b.size || 0;
+            return va - vb;
+          }
+          va = (a[sortKey] || '').toLowerCase();
+          vb = (b[sortKey] || '').toLowerCase();
+          return va < vb ? -1 : va > vb ? 1 : 0;
+        });
+        return sortDir === 'asc' ? sorted : sorted.reverse();
+      }
+
+      function backBarHtml(name){
+        var label = view.dim === 'series' ? '所有系列'
+                  : view.dim === 'author' ? '所有作者'
+                  : '全部游戏';
+        return '<div class="backBar"><a data-back>← ' + label + '</a><span class="title">' + escapeHtml(name) + '</span></div>';
+      }
+
+      function updateToolbar(){
+        var tabs = document.querySelectorAll('#toolbar .tab');
+        for(var i=0;i<tabs.length;i++){
+          tabs[i].classList.toggle('active', tabs[i].getAttribute('data-dim') === view.dim);
+        }
+        var btns = document.querySelectorAll('#toolbar .sortBtn');
+        for(var j=0;j<btns.length;j++){
+          var key = btns[j].getAttribute('data-sort');
+          var active = key === sortKey;
+          btns[j].classList.toggle('active', active);
+          var arrow = btns[j].querySelector('.arrow');
+          if(active && key !== 'default'){
+            if(!arrow){ arrow = document.createElement('span'); arrow.className = 'arrow'; btns[j].appendChild(arrow); }
+            arrow.textContent = sortDir === 'asc' ? '▲' : '▼';
+          }else if(arrow){
+            arrow.remove();
+          }
+        }
+      }
+
       function render(){
+        updateToolbar();
         var q = search.value.trim().toLowerCase();
 
         if(!games.length){
@@ -490,50 +587,72 @@
         }
         empty.style.display = 'none';
 
-        // 搜索：跨所有游戏扁平过滤，忽略系列视图
+        // 搜索：跨所有游戏扁平过滤（含作者），排序生效
         if(q){
           var list = games.filter(function(g){
             return (g.title||'').toLowerCase().indexOf(q) >= 0
                 || (g.description||'').toLowerCase().indexOf(q) >= 0
-                || (g.series||'').toLowerCase().indexOf(q) >= 0;
+                || (g.series||'').toLowerCase().indexOf(q) >= 0
+                || (g.author||'').toLowerCase().indexOf(q) >= 0;
           });
-          grid.innerHTML = list.map(gameCardHtml).join('');
+          grid.innerHTML = applySort(list).map(gameCardHtml).join('');
           return;
         }
 
-        var html = '';
-        if(currentSeries === null){
-          // 汇总页：系列卡片 + 未分组
-          var gb = groupBySeries(games);
-          if(gb.names.length){
-            html += '<div class="section">系列汇总<span class="count">' + gb.names.length + ' 个系列</span></div>';
-            html += gb.names.map(function(n){ return seriesCardHtml(n, gb.groups[n]); }).join('');
-          }
-          if(gb.ungrouped.length){
-            html += '<div class="section">未分组<span class="count">' + gb.ungrouped.length + ' 款</span></div>';
-            html += gb.ungrouped.map(gameCardHtml).join('');
-          }
-        }else{
-          // 系列详情页
-          var members = games.filter(function(g){ return g.series === currentSeries; });
-          if(!members.length){ currentSeries = null; return render(); }
-          html += '<div class="backBar"><a data-back>← 所有系列</a><span class="title">' + escapeHtml(currentSeries) + '</span></div>';
-          html += members.map(gameCardHtml).join('');
+        // 详情页（系列/作者）
+        if(view.name !== null){
+          var field = dimField(view.dim);
+          var members = games.filter(function(g){ return g[field] === view.name; });
+          if(!members.length){ view.name = null; return render(); }
+          var html = backBarHtml(view.name);
+          html += applySort(members).map(gameCardHtml).join('');
+          grid.innerHTML = html;
+          return;
         }
-        grid.innerHTML = html;
+
+        // 平铺
+        if(view.dim === 'flat'){
+          grid.innerHTML = applySort(games).map(gameCardHtml).join('');
+          return;
+        }
+
+        // 汇总页（系列/作者）
+        var gb = groupBy(games, dimKeyFn(view.dim));
+        var html2 = '';
+        if(gb.names.length){
+          html2 += '<div class="section">' + dimLabel(view.dim) + '汇总<span class="count">' + gb.names.length + ' 个</span></div>';
+          html2 += gb.names.map(function(n){ return groupCardHtml(n, gb.groups[n]); }).join('');
+        }
+        if(gb.ungrouped.length){
+          html2 += '<div class="section">' + dimGroupName(view.dim) + '<span class="count">' + gb.ungrouped.length + ' 款</span></div>';
+          html2 += applySort(gb.ungrouped).map(gameCardHtml).join('');
+        }
+        grid.innerHTML = html2;
       }
 
       grid.addEventListener('click', function(e){
         var editBtn = e.target.closest('[data-edit]');
         if(editBtn){ e.stopPropagation(); openEdit(parseInt(editBtn.dataset.edit,10)); return; }
         var back = e.target.closest('[data-back]');
-        if(back){ currentSeries = null; render(); return; }
-        var seriesCard = e.target.closest('[data-series]');
-        if(seriesCard){ currentSeries = seriesCard.getAttribute('data-series'); render(); return; }
+        if(back){ view.name = null; render(); return; }
+        var groupCard = e.target.closest('[data-group]');
+        if(groupCard){ view.name = groupCard.getAttribute('data-group'); render(); return; }
         var card = e.target.closest('.card[data-idx]');
         if(card){
           var g = games[parseInt(card.dataset.idx,10)];
           if(g) location.href = 'play.html?data=' + encodeURIComponent(g.file);
+        }
+      });
+
+      document.getElementById('toolbar').addEventListener('click', function(e){
+        var tab = e.target.closest('[data-dim]');
+        if(tab){ view = { dim: tab.getAttribute('data-dim'), name: null }; render(); return; }
+        var sortBtn = e.target.closest('[data-sort]');
+        if(sortBtn){
+          var key = sortBtn.getAttribute('data-sort');
+          if(key === sortKey){ sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
+          else { sortKey = key; sortDir = 'asc'; }
+          render();
         }
       });
 
