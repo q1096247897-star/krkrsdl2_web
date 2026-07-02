@@ -61,6 +61,28 @@
 extern "C" bool TVPHasWebPluginShim(const ttstr &name);
 extern "C" void TVPLoadWebPluginShim(const ttstr &name);
 extern "C" void TVPUnloadWebPluginShim(const ttstr &name);
+#include <cstdio>
+// 统一插件诊断日志（§12.2）：[krkrsdl2-plugin] request=X type=Y status=Z reason=...
+// 用 fprintf(stderr) 输出，emscripten 默认把 stderr 重定向到浏览器 console，
+// 与预加载器 JS 日志前缀一致。
+static void TVPPluginLog(const char *msg)
+{
+	fprintf(stderr, "[krkrsdl2-plugin] %s\n", msg);
+	fflush(stderr);
+}
+static void TVPPluginLogRequest(const ttstr &name, const char *type, const char *status, const char *reason)
+{
+	std::string n;
+	TVPUtf16ToUtf8(n, name.AsStdString());
+	std::string buf = std::string("request=") + n +
+		" type=" + (type ? type : "") +
+		" status=" + (status ? status : "") +
+		" reason=" + (reason ? reason : "");
+	TVPPluginLog(buf.c_str());
+}
+#define TVP_PLUGIN_LOG(name, type, status, reason) TVPPluginLogRequest(name, type, status, reason)
+#else
+#define TVP_PLUGIN_LOG(name, type, status, reason) ((void)0)
 #endif
 
 
@@ -315,6 +337,14 @@ tTVPPlugin::tTVPPlugin(const ttstr & name, ITSSStorageProvider *storageprovider
 		if (TVPCheckExistentLocalFile(Holder->GetLocalName()))
 		{
 			Instance = SDL_LoadObject(filename.c_str());
+			if (!Instance)
+			{
+				TVP_PLUGIN_LOG(name, "side-module", "missing", "SDL_LoadObject-failed");
+			}
+		}
+		else
+		{
+			TVP_PLUGIN_LOG(name, "side-module", "missing", "file-not-in-FS");
 		}
 	}
 
@@ -360,6 +390,10 @@ tTVPPlugin::tTVPPlugin(const ttstr & name, ITSSStorageProvider *storageprovider
 		{
 			V2Link(TVPGetFunctionExporter());
 		}
+		else
+		{
+			TVP_PLUGIN_LOG(name, "side-module", "warning", "missing-V2Link-export");
+		}
 
 #ifdef _WIN32
 		// retrieve ModuleInstance
@@ -387,7 +421,10 @@ tTVPPlugin::tTVPPlugin(const ttstr & name, ITSSStorageProvider *storageprovider
 			HRESULT hr = GetModuleInstance(&TSSModule, storageprovider,
 				 NULL, mainwin);
 			if(FAILED(hr) || TSSModule == NULL)
+			{
+				TVP_PLUGIN_LOG(name, "side-module", "missing", "GetModuleInstance-failed");
 				TVPThrowExceptionMessage(TVPCannotLoadPlugin, name);
+			}
 
 			// get supported extensions
 			TSS_ULONG index = 0;
@@ -559,6 +596,11 @@ void TVPLoadPlugin(const ttstr & name)
 		if (isShim)
 		{
 			TVPLoadWebPluginShim(name);
+			TVP_PLUGIN_LOG(name, "web-shim", "loaded", "install-called");
+		}
+		else
+		{
+			TVP_PLUGIN_LOG(name, "side-module", "loading", "SDL_LoadObject");
 		}
 		p = new tTVPPlugin(name, &TVPPluginVector.StorageProvider
 #if defined(__EMSCRIPTEN__)
