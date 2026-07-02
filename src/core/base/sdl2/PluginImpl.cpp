@@ -55,6 +55,14 @@
 #include "SysInitImpl.h"
 #include <set>
 
+#if defined(__EMSCRIPTEN__)
+// Web 插件 shim 分流（step 11）：Plugins.link 对 web-shim 类型不走 SDL_LoadObject，
+// 改为调用 JS 侧 Module.krkrPluginShim。桥函数定义在 kremscripten.cpp。
+extern "C" bool TVPHasWebPluginShim(const ttstr &name);
+extern "C" void TVPLoadWebPluginShim(const ttstr &name);
+extern "C" void TVPUnloadWebPluginShim(const ttstr &name);
+#endif
+
 
 //---------------------------------------------------------------------------
 // export table
@@ -246,6 +254,9 @@ struct tTVPPlugin
 	tTVPV2LinkProc V2Link = nullptr;
 	tTVPV2UnlinkProc V2Unlink = nullptr;
 
+#if defined(__EMSCRIPTEN__)
+	bool IsWebShim = false; // web-shim 插件：不走 SDL_LoadObject，由 JS 侧 Module.krkrPluginShim 实现。
+#endif
 
 	tTVPGetModuleInstanceProc GetModuleInstance = nullptr;
 #if 0
@@ -263,15 +274,38 @@ struct tTVPPlugin
 
 	std::vector<ttstr> SupportedExts;
 
-	tTVPPlugin(const ttstr & name, ITSSStorageProvider *storageprovider);
+	tTVPPlugin(const ttstr & name, ITSSStorageProvider *storageprovider
+#if defined(__EMSCRIPTEN__)
+		, bool webShim = false
+#endif
+		);
 	~tTVPPlugin();
 
 	bool Uninit();
 };
 //---------------------------------------------------------------------------
-tTVPPlugin::tTVPPlugin(const ttstr & name, ITSSStorageProvider *storageprovider)
+tTVPPlugin::tTVPPlugin(const ttstr & name, ITSSStorageProvider *storageprovider
+#if defined(__EMSCRIPTEN__)
+	, bool webShim
+#endif
+	)
 {
 	Name = name;
+
+#if defined(__EMSCRIPTEN__)
+	if (webShim)
+	{
+		// Web shim 插件：JS 侧 Module.krkrPluginShim 已在预加载阶段注册并加载脚本。
+		// 这里不加载任何 .so，仅记录插件名，让 Plugins.getList 能列出它。
+		IsWebShim = true;
+		Instance = NULL;
+		Holder = NULL;
+		V2Link = NULL;
+		V2Unlink = NULL;
+		GetModuleInstance = NULL;
+		return;
+	}
+#endif
 
 	Instance = NULL;
 	Holder = new tTVPPluginHolder(name);
@@ -415,6 +449,14 @@ bool tTVPPlugin::Uninit()
 	tTJS *tjs = TVPGetScriptEngine();
 	if(tjs) tjs->DoGarbageCollection(); // to release unused objects
 
+#if defined(__EMSCRIPTEN__)
+	if (IsWebShim)
+	{
+		TVPUnloadWebPluginShim(Name);
+		return true;
+	}
+#endif
+
 	if(V2Unlink)
 	{
  		if(TJS_FAILED(V2Unlink())) return false;
@@ -510,7 +552,22 @@ void TVPLoadPlugin(const ttstr & name)
 	try
 	{
 		TVPPluginLoading = true;
+#if defined(__EMSCRIPTEN__)
+		// Web shim 分流（step 11）：manifest 标为 web-shim 的插件走 JS 侧实现，
+		// 不加载 .so。side-module 类型仍走 native 路径（预加载已写入 /plugin）。
+		bool isShim = TVPHasWebPluginShim(name);
+		if (isShim)
+		{
+			TVPLoadWebPluginShim(name);
+		}
+		p = new tTVPPlugin(name, &TVPPluginVector.StorageProvider
+#if defined(__EMSCRIPTEN__)
+			, isShim
+#endif
+			);
+#else
 		p = new tTVPPlugin(name, &TVPPluginVector.StorageProvider);
+#endif
 		TVPPluginLoading = false;
 	}
 	catch(...)

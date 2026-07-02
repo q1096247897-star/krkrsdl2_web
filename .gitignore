@@ -17,3 +17,6 @@ docker/.env
 .externalNativeBuild
 .gradle
 android-project/app/.cxx/
+# Python 缓存
+__pycache__/
+*.pyc

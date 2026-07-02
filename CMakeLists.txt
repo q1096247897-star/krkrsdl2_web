@@ -587,6 +587,15 @@ target_compile_definitions(${KRKRSDL2COMMON_NAME} PUBLIC ${KRKRSDL2_DEFINITIONS}
 target_compile_options(${KRKRSDL2COMMON_NAME} PUBLIC $<$<COMPILE_LANGUAGE:C>:${KRKRSDL2_CFLAGS}>)
 target_compile_options(${KRKRSDL2COMMON_NAME} PUBLIC $<$<COMPILE_LANGUAGE:CXX>:${KRKRSDL2_CXXFLAGS}>)
 target_include_directories(${KRKRSDL2COMMON_NAME} PUBLIC ${KRKRSDL2COMMON_INCLUDES})
+# emscripten 6.x 的 bind.h 需要 std::optional（C++17），但 krkrz 老代码用
+# std::binary_function（C++17 已移除）只能在 C++14 编。给唯一包含 bind.h 的
+# kremscripten.cpp 单独提 C++17，其余文件保持 C++14。
+if(${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
+set_source_files_properties(src/plugins/kremscripten.cpp PROPERTIES
+	CXX_STANDARD 17
+	COMPILE_OPTIONS "-std=gnu++17"
+	SKIP_PRECOMPILE_HEADERS ON)
+endif()
 if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.13.0")
 target_link_options(${KRKRSDL2COMMON_NAME} PUBLIC ${KRKRSDL2_LDFLAGS})
 endif()
@@ -764,6 +773,12 @@ configure_file(
 	@ONLY
 	NEWLINE_STYLE UNIX
 )
+configure_file(
+	src/config/plugin-preload.js
+	plugin-preload.js
+	COPYONLY
+)
+add_subdirectory(plugins)
 endif()
 
 get_directory_property(HAS_PARENT_SCOPE PARENT_DIRECTORY)

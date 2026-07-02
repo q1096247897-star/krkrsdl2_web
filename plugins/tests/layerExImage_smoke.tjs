@@ -1,0 +1,4 @@
+// layerExImage 插件 smoke 测试：确认 Plugins.link 不抛异常并完成链接。
+// Web 端：side-module 经预加载写入 /plugin/layerExImage.so；web-shim 经预加载注册。
+Plugins.link("layerExImage.dll");
+Debug.message("layerExImage linked");

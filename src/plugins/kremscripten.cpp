@@ -1026,6 +1026,62 @@ void internal_TJS2JS_throw_val_as_TJS_exception(emscripten::val v)
 	TJS_eTJSScriptException(msg, (tTJSScriptBlock *)nullptr, 0, ve);
 }
 
+//---------------------------------------------------------------------------
+
+// Web 插件 shim 桥（step 11）：供 PluginImpl.cpp 的 TVPLoadPlugin 分流调用。
+// JS 侧由 plugin-preload.js 维护 Module.krkrPluginShim 注册表：
+//   { has(name), get(name), register(name, api) }
+// has(name) 返回该 dll 是否登记为 web-shim；load/unload 触发 shim 的激活/卸载。
+// 用 extern "C" 链接，避免名字修饰，方便 PluginImpl.cpp 用 extern 声明引入。
+static emscripten::val krkrPluginShimRegistry()
+{
+	static emscripten::val registry = emscripten::val::undefined();
+	if (registry == emscripten::val::undefined())
+	{
+		emscripten::val module = emscripten::val::global("Module");
+		if (module.typeOf() == js_string_object)
+		{
+			registry = module["krkrPluginShim"];
+		}
+	}
+	return registry;
+}
+
+extern "C" bool TVPHasWebPluginShim(const ttstr &name)
+{
+	emscripten::val reg = krkrPluginShimRegistry();
+	if (reg.typeOf() != js_string_object) return false;
+	emscripten::val has = reg["has"];
+	if (has.typeOf() != js_string_function) return false;
+	emscripten::val r = has(name.AsStdString());
+	return r.as<bool>();
+}
+
+extern "C" void TVPLoadWebPluginShim(const ttstr &name)
+{
+	emscripten::val reg = krkrPluginShimRegistry();
+	if (reg.typeOf() != js_string_object) return;
+	// shim 脚本在预加载阶段已通过 <script> 加载并自行 register。
+	// 这里调用 shim api 的 install（若存在），让其把 TJS 对象挂到全局。
+	emscripten::val api = reg.call<emscripten::val>("get", name.AsStdString());
+	if (api.typeOf() == js_string_object && api["install"].typeOf() == js_string_function)
+	{
+		emscripten::val module = emscripten::val::global("Module");
+		api.call<void>("install", module);
+	}
+}
+
+extern "C" void TVPUnloadWebPluginShim(const ttstr &name)
+{
+	emscripten::val reg = krkrPluginShimRegistry();
+	if (reg.typeOf() != js_string_object) return;
+	emscripten::val api = reg.call<emscripten::val>("get", name.AsStdString());
+	if (api.typeOf() == js_string_object && api["unload"].typeOf() == js_string_function)
+	{
+		api.call<void>("unload");
+	}
+}
+
 EMSCRIPTEN_BINDINGS(KirikiriEmscriptenInterface)
 {
 	emscripten::function("evalTJS", &evalTJSFromJS);

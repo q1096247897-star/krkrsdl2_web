@@ -1,0 +1,302 @@
+{
+  "schemaVersion": 1,
+  "engine": "krkrsdl2-web",
+  "compatibilityMode": "phase1-common-cn",
+  "scope": "一期只做国内游戏最常见、最影响启动和基础流程的插件",
+  "resolution": {
+    "scriptExtension": ".dll",
+    "nativeSideModuleExtension": ".so",
+    "searchPaths": [
+      "/plugin",
+      "/system",
+      "/"
+    ],
+    "unknownPluginPolicy": "explicit-error"
+  },
+  "plugins": [
+    {
+      "dllName": "menu.dll",
+      "aliases": [
+        "Menu.dll",
+        "MENU.DLL"
+      ],
+      "webModule": "plugins/shims/menu.js",
+      "sourceRepo": "https://github.com/krkrz/menu",
+      "license": "to-be-confirmed",
+      "implementationType": "web-shim",
+      "compatLevel": "C",
+      "priority": "P0",
+      "phase": 1,
+      "reason": "国内游戏常用菜单插件；直接影响标题菜单、系统菜单和快捷键。",
+      "exports": [],
+      "dependencies": [
+        "KirikiriEmscriptenInterface",
+        "DOM",
+        "KeyboardEvent"
+      ],
+      "testScript": "plugins/tests/menu_smoke.tjs",
+      "status": "planned",
+      "implementation": "不移植 Win32 HMENU/HWND；实现 MenuItem、Window.menu、caption、enabled、checked、shortcut、onClick 等脚本可见行为，底层用 DOM 或 Canvas 菜单和键盘事件分发。"
+    },
+    {
+      "dllName": "KAGParser.dll",
+      "aliases": [],
+      "webModule": "plugin/KAGParser.so",
+      "sourceRepo": "https://github.com/krkrz/KAGParser",
+      "license": "to-be-confirmed",
+      "implementationType": "side-module",
+      "compatLevel": "A",
+      "priority": "P0",
+      "phase": 1,
+      "reason": "KAG 扩展解析基础插件；用于验证 Emscripten side module 插件链路。",
+      "exports": [
+        "V2Link",
+        "V2Unlink"
+      ],
+      "dependencies": [],
+      "testScript": "plugins/tests/KAGParser_smoke.tjs",
+      "status": "blocked",
+      "implementation": "源码已拉取（plugins/third_party/KAGParser）。已修 3 处 krkrz 版本漂移：TJS_NCM_REG_THIS 改 classobj、删除 TVPInternalError 旧式定义、覆盖 TJS_NATIVE_SET_ClassID。剩余阻塞：krkrsdl2 移除了插件 stub 机制（FuncStubs.h 仅 1 行，主引擎不调 TVPInitImportStub），side-module 无法调用 TVPGetScriptDispatch 等主 wasm 函数。需先重建 side-module stub 机制（运行 makestub.py 生成完整 FuncStubs）才能继续。详见 plugin-compatibility-execution-steps.md §7.7。"
+    },
+    {
+      "dllName": "json.dll",
+      "aliases": [],
+      "webModule": "plugins/shims/json.js",
+      "sourceRepo": "https://github.com/wtnbgo/json",
+      "license": "to-be-confirmed",
+      "implementationType": "web-shim",
+      "compatLevel": "A",
+      "priority": "P0",
+      "phase": 1,
+      "reason": "国内移植版和补丁脚本常用 JSON 读写配置、存档扩展和数据表。",
+      "exports": [
+        "V2Link",
+        "V2Unlink"
+      ],
+      "dependencies": [
+        "JSON"
+      ],
+      "testScript": "plugins/tests/json_smoke.tjs",
+      "status": "in-progress",
+      "implementation": "Web shim：Scripts.evalJSON/evalJSONStorage/toJSONString/saveJSON 用浏览器 JSON.parse + evalTJS 构造原生 TJS Array/Dictionary。toJSONString 在 TJS 侧递归枚举。需真实游戏验证 TJS 语法和 Storages.readText/writeText 方法名。"
+    },
+    {
+      "dllName": "fstat.dll",
+      "aliases": [],
+      "webModule": "plugins/shims/fstat.js",
+      "sourceRepo": "https://github.com/wtnbgo/fstat",
+      "license": "to-be-confirmed",
+      "implementationType": "web-shim",
+      "compatLevel": "B",
+      "priority": "P0",
+      "phase": 1,
+      "reason": "常用于检查文件存在、大小、时间戳；影响资源判断和补丁加载。",
+      "exports": [
+        "V2Link",
+        "V2Unlink"
+      ],
+      "dependencies": [
+        "EmscriptenFS"
+      ],
+      "testScript": "plugins/tests/fstat_smoke.tjs",
+      "status": "in-progress",
+      "implementation": "Web shim：Storages.fstat/getTime/isExistentDirectory/isExistentStorageNoSearchNoNormalize/getLastModifiedFileTime/dirlist 用 Emscripten FS.stat/readdir。P0 实现 6 个核心方法；dirlistEx/dirtree/文件修改类方法后续补。需真实游戏验证 storage 路径→FS 路径映射和 Date 构造。"
+    },
+    {
+      "dllName": "wutcwf.dll",
+      "aliases": [],
+      "webModule": "plugin/wutcwf.so",
+      "sourceRepo": "https://github.com/krkrz/SamplePlugin/tree/master/wutcwf",
+      "license": "to-be-confirmed",
+      "implementationType": "side-module-with-text-adapter",
+      "compatLevel": "B",
+      "priority": "P0",
+      "phase": 1,
+      "reason": "文本、宽字符、字体相关兼容常见；影响中文文本和字体处理。",
+      "exports": [
+        "V2Link",
+        "V2Unlink"
+      ],
+      "dependencies": [
+        "TextEncoding",
+        "FontFace"
+      ],
+      "testScript": "plugins/tests/wutcwf_smoke.tjs",
+      "status": "planned",
+      "implementation": "编译示例插件源码，平台相关字符/字体逻辑改走浏览器 TextEncoder/TextDecoder 和 FontFace 能力。"
+    },
+    {
+      "dllName": "extrans.dll",
+      "aliases": [],
+      "webModule": "plugin/extrans.so",
+      "sourceRepo": "https://github.com/krkrz/SamplePlugin/tree/master/extrans",
+      "license": "to-be-confirmed",
+      "implementationType": "side-module",
+      "compatLevel": "B",
+      "priority": "P1",
+      "phase": 1,
+      "reason": "常见转场扩展；影响演出效果，但通常不阻断启动。",
+      "exports": [
+        "V2Link",
+        "V2Unlink"
+      ],
+      "dependencies": [
+        "LayerBitmap"
+      ],
+      "testScript": "plugins/tests/extrans_smoke.tjs",
+      "status": "planned",
+      "implementation": "编译转场算法为 side module，直接操作 Layer bitmap buffer；用桌面输出做像素/视觉对照。"
+    },
+    {
+      "dllName": "addFont.dll",
+      "aliases": [],
+      "webModule": "plugins/shims/addFont.js",
+      "sourceRepo": "https://github.com/wtnbgo/addFont",
+      "license": "to-be-confirmed",
+      "implementationType": "web-shim",
+      "compatLevel": "C",
+      "priority": "P1",
+      "phase": 1,
+      "reason": "中文游戏常用自带字体；影响文字显示风格和缺字问题。",
+      "exports": [],
+      "dependencies": [
+        "FontFace",
+        "KirikiriEmscriptenInterface"
+      ],
+      "testScript": "plugins/tests/addFont_smoke.tjs",
+      "status": "planned",
+      "implementation": "不移植系统字体注册；用 CSS FontFace 从游戏包或 Emscripten FS 加载字体，并在脚本使用前完成注册。"
+    },
+    {
+      "dllName": "csvParser.dll",
+      "aliases": [],
+      "webModule": "plugin/csvParser.so",
+      "sourceRepo": "https://github.com/wtnbgo/csvParser",
+      "license": "to-be-confirmed",
+      "implementationType": "side-module",
+      "compatLevel": "A",
+      "priority": "P1",
+      "phase": 1,
+      "reason": "常用于数据表、配置表、补丁表；实现成本较低。",
+      "exports": [
+        "V2Link",
+        "V2Unlink"
+      ],
+      "dependencies": [],
+      "testScript": "plugins/tests/csvParser_smoke.tjs",
+      "status": "planned",
+      "implementation": "编译源码为 side module；验证逗号、引号、换行、编码边界。"
+    },
+    {
+      "dllName": "saveStruct.dll",
+      "aliases": [
+        "savestruct.dll"
+      ],
+      "webModule": "plugin/saveStruct.so",
+      "sourceRepo": "https://github.com/wtnbgo/saveStruct",
+      "license": "to-be-confirmed",
+      "implementationType": "side-module",
+      "compatLevel": "A",
+      "priority": "P1",
+      "phase": 1,
+      "reason": "部分游戏用于结构化存档和数据序列化；和存读档稳定性相关。",
+      "exports": [
+        "V2Link",
+        "V2Unlink"
+      ],
+      "dependencies": [
+        "IDBFS"
+      ],
+      "testScript": "plugins/tests/saveStruct_smoke.tjs",
+      "status": "planned",
+      "implementation": "编译源码为 side module；验证序列化结果与 Windows/Android 一致，并确保存档文件同步到 IDBFS。"
+    },
+    {
+      "dllName": "layerExImage.dll",
+      "aliases": [
+        "LayerExImage.dll"
+      ],
+      "webModule": "plugin/layerExImage.so",
+      "sourceRepo": "https://github.com/wtnbgo/layerExImage",
+      "license": "to-be-confirmed",
+      "implementationType": "side-module",
+      "compatLevel": "B",
+      "priority": "P1",
+      "phase": 1,
+      "reason": "常见 Layer 图像处理扩展；覆盖基础演出图像操作。",
+      "exports": [
+        "V2Link",
+        "V2Unlink"
+      ],
+      "dependencies": [
+        "LayerBitmap"
+      ],
+      "testScript": "plugins/tests/layerExImage_smoke.tjs",
+      "status": "planned",
+      "implementation": "编译图像处理逻辑为 side module，适配 Layer buffer 读写；一期只保证常用 API，复杂效果后续扩展。"
+    },
+    {
+      "dllName": "Minimal.dll",
+      "aliases": [],
+      "webModule": "plugin/Minimal.so",
+      "sourceRepo": "",
+      "license": "MIT",
+      "implementationType": "side-module",
+      "compatLevel": "A",
+      "priority": "test",
+      "phase": 0,
+      "reason": "最小验证插件：仅 V2Link/V2Unlink，用于验证 side-module 构建链与预加载链路。非真实游戏插件。",
+      "exports": [
+        "V2Link",
+        "V2Unlink"
+      ],
+      "dependencies": [],
+      "testScript": "",
+      "status": "verified",
+      "implementation": "plugins/src/minimal/Minimal.cpp，编译为 Minimal.so，验证 .dll->.so 映射 + 预加载 + SDL_LoadObject 链路。"
+    }
+  ],
+  "deferredPlugins": [
+    "AlphaMovie.dll",
+    "DrawDeviceD3D.dll",
+    "DrawDeviceD3DZ.dll",
+    "ExtKAGParser.dll",
+    "KAGParserEx.dll",
+    "KAGParserExb.dll",
+    "KaichoTrans.dll",
+    "LayerExDraw.dll",
+    "LayerExSave.dll",
+    "PSBFile.dll",
+    "PackinOne.dll",
+    "TextRender.dll",
+    "dirlist.dll",
+    "emoteplayer.dll",
+    "expat.dll",
+    "fftgraph.dll",
+    "getSample.dll",
+    "getabout.dll",
+    "gfxEffect.dll",
+    "kirikiroid2.dll",
+    "layerExAlpha.dll",
+    "layerExAreaAverage.dll",
+    "layerExBTOA.dll",
+    "layerExMovie.dll",
+    "layerExRaster.dll",
+    "layerExShimmer.dll",
+    "lzfs.dll",
+    "minizip.dll",
+    "motionplayer.dll",
+    "multiimage.dll",
+    "perspective.dll",
+    "scriptsEx.dll",
+    "shrinkCopy.dll",
+    "sqlite3.dll",
+    "util_generic.dll",
+    "util_graph.dll",
+    "util_system.dll",
+    "varfile.dll",
+    "win32dialog.dll",
+    "windowEx.dll",
+    "xp3filter.dll"
+  ]
+}

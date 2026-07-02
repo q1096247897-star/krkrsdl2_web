@@ -1,0 +1,4 @@
+// json 插件 smoke 测试：确认 Plugins.link 不抛异常并完成链接。
+// Web 端：side-module 经预加载写入 /plugin/json.so；web-shim 经预加载注册。
+Plugins.link("json.dll");
+Debug.message("json linked");

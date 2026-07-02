@@ -27,7 +27,15 @@ done
 [ -d "$deploy" ] && echo "deploy/ 已存在，将更新其中文件（games/covers/manifest.json 保留）..."
 mkdir -p "$deploy/games" "$deploy/covers"
 
-cp "$build"/{krkrsdl2.js,krkrsdl2.wasm,index.html,play.html} "$deploy/"
+cp "$build"/{krkrsdl2.js,krkrsdl2.wasm,index.html,play.html,plugin-preload.js} "$deploy/"
+
+# 插件兼容清单与 web 产物（side-module .so / web-shim .js）
+mkdir -p "$deploy/plugins"
+cp "$root/plugins/manifest.json" "$deploy/plugins/manifest.json"
+if [ -d "$root/plugins/web" ]; then
+  mkdir -p "$deploy/plugins/web"
+  cp -r "$root/plugins/web/." "$deploy/plugins/web/" 2>/dev/null || true
+fi
 
 # 可选 JS fallback
 if [ -f "$build/krkrsdl2.wasm.js" ]; then

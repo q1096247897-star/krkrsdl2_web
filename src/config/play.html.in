@@ -122,6 +122,8 @@
       #seriesSwitch[hidden] { display: none; }
     </style>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 插件预加载器：在引擎 main() 前把 side-module 写入 /plugin，加载 web-shim -->
+    <script src="plugin-preload.js"></script>
   </head>
   <body>
     <a href="index.html" id="home_link">← 返回游戏库</a>
@@ -633,6 +635,14 @@
         Module['addRunDependency']('savedata');
       }
       Module['preRun'].push(runWithFS);
+
+      // 预加载 krkrsdl2 插件：side-module 写入 /plugin，web-shim 加载脚本。
+      // 失败不阻断启动，缺失插件在 Plugins.link 时报错。
+      if (typeof preloadKirikiriPlugins === 'function') {
+        Module['preRun'].push(function () {
+          preloadKirikiriPlugins(Module, 'plugins/manifest.json');
+        });
+      }
 
       if (!window.WebAssembly) {
         // 当前浏览器不支持 WebAssembly，先加载 .wasm.js 这个 JavaScript 回退实现，
