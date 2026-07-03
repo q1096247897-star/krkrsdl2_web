@@ -86,17 +86,14 @@ static std::string TVP_EmscMimeForExt(const std::string &e)
 // Build the server-side transcode cache URL for an unsupported-format video.
 // gamePath: e.g. "games/Data.xp3" (the ?data= value).
 // videoPath: in-archive path, e.g. "video/spp1.wmv".
-// -> "video_cache/games/Data.xp3.d/video/spp1.mp4"
+// -> "video_cache/games/Data.xp3.d/video/spp1.wmv.mp4"
 static std::string TVP_EmscCacheRelPath(const std::string &gamePath,
 	const std::string &videoPath)
 {
-	std::string vp = videoPath;
-	std::string::size_type slash = vp.find_last_of('/');
-	std::string::size_type dot = vp.find_last_of('.');
-	if(dot != std::string::npos && (slash == std::string::npos || dot > slash))
-		vp.resize(dot);
-	vp += ".mp4";
-	return "video_cache/" + gamePath + ".d/" + vp;
+	// 保留原始文件名（含扩展名）再追加 .mp4，避免同目录下仅扩展名不同的
+	// 视频在缓存里撞名（如 a.wmv 与 a.avi 都映射到 a.mp4）。归档内条目名
+	// 唯一，故 <videoPath>.mp4 在单个游戏缓存内必然唯一；跨游戏由 .d 隔离。
+	return "video_cache/" + gamePath + ".d/" + videoPath + ".mp4";
 }
 
 static bool TVP_EmscVideoHelpersInstalled = false;

@@ -134,14 +134,12 @@ def extract_entry(f, base, segs):
 
 
 def cache_rel_for(game_path, video_name):
-    """与引擎 TVP_EmscCacheRelPath 完全一致的缓存相对路径。"""
-    slash = video_name.rfind("/")
-    dot = video_name.rfind(".")
-    if dot != -1 and (slash == -1 or dot > slash):
-        stem = video_name[:dot]
-    else:
-        stem = video_name
-    return "video_cache/" + game_path + ".d/" + stem + ".mp4"
+    """与引擎 TVP_EmscCacheRelPath 完全一致：保留原始文件名（含扩展名）再追加 .mp4。
+
+    归档内条目名唯一，故 <video_name>.mp4 在单个游戏缓存内必然唯一；
+    跨游戏由 <game_path>.d 目录隔离，避免同名/同目录异扩展名视频撞名。
+    """
+    return "video_cache/" + game_path + ".d/" + video_name + ".mp4"
 
 
 def norm_game_path(xp3_path, out_root, override):
