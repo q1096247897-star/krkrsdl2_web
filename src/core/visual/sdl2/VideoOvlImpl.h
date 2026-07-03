@@ -199,6 +199,24 @@ private:
 		// UtilWindow's window procedure
 	void ClearWndProcMessages(); // clear WndProc's message queue
 
+#ifdef __EMSCRIPTEN__
+	// HTML5 <video> overlay state for the Emscripten/web build.
+	void *EmscVideoState;
+	tjs_int EmscVolume;
+	void EmscOpen(const ttstr &name);
+	void EmscClose();
+	void EmscPlay();
+	void EmscStop();
+	void EmscPause();
+	void EmscSetVisible(bool b);
+	void EmscUpdateRect();
+	void EmscSetVolume(tjs_int v);
+public:
+	void EmscHandleEnded();
+	void EmscHandleError();
+	void EmscHandleCanPlay();
+private:
+#endif
 };
 //---------------------------------------------------------------------------
 

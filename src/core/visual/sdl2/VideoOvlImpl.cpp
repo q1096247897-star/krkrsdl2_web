@@ -37,6 +37,96 @@
 #define TVPDSAttenuateToVolume(x) x
 #endif
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#include <emscripten/val.h>
+#include <emscripten/bind.h>
+#include <string>
+
+// Heap-allocated state for the HTML5 <video> overlay. Kept out of the header
+// so emscripten headers do not leak into VideoOvlImpl.h.
+struct tVPVideoEmscState
+{
+	emscripten::val video = emscripten::val::null();
+	emscripten::val onEnded = emscripten::val::null();
+	emscripten::val onError = emscripten::val::null();
+	emscripten::val onCanPlay = emscripten::val::null();
+	std::string blobUrl;
+	bool wantPlay = false;
+	bool ready = false;
+	bool failed = false;
+};
+
+static inline bool TVP_EmscValOk(const emscripten::val &v)
+{
+	return !v.isUndefined() && !v.isNull();
+}
+
+static bool TVP_EmscVideoHelpersInstalled = false;
+static void TVP_EmscVideoEnsureHelpers()
+{
+	if(TVP_EmscVideoHelpersInstalled) return;
+	TVP_EmscVideoHelpersInstalled = true;
+	static const char *code = R"js(
+(function(){
+  if(window.__tvpVideo) return;
+  var H = {
+    canvasId: 'canvas',
+    makeHandler: function(name){
+      return function(ev){
+        var v = ev && ev.target;
+        if(v && v._tvpPtr != null){
+          try { if(typeof Module !== 'undefined' && Module[name]) Module[name](v._tvpPtr); }
+          catch(e){ if(typeof console !== 'undefined') console.error('[tvpVideo]', e); }
+        }
+      };
+    },
+    play: function(v){
+      try {
+        var p = v.play();
+        if(p && p.then){
+          p.then(function(){}, function(err){
+            if(v._tvpMutedRetry) return;
+            v._tvpMutedRetry = true;
+            try { v.muted = true; var p2 = v.play(); if(p2 && p2.then){ p2.then(function(){}, function(e){ if(console) console.warn('[tvpVideo] play rejected', e); }); } }
+            catch(e2){ if(console) console.warn('[tvpVideo]', e2); }
+          });
+        }
+      } catch(e){ if(console) console.warn('[tvpVideo]', e); }
+    },
+    pause: function(v){ try { v.pause(); } catch(e){} },
+    seek0: function(v){ try { v.currentTime = 0; } catch(e){} },
+    reposition: function(v){
+      var c = document.getElementById(this.canvasId);
+      if(!c || !v) return;
+      var r = c.getBoundingClientRect();
+      var W = v._tvpW, Hh = v._tvpH;
+      if(!(W > 0 && Hh > 0)){ W = c.width || r.width; Hh = c.height || r.height; }
+      var s = Math.min(r.width / W, r.height / Hh);
+      var dw = W * s, dh = Hh * s;
+      var ox = r.left + (r.width - dw) / 2, oy = r.top + (r.height - dh) / 2;
+      var st = v.style;
+      st.position = 'absolute';
+      st.left = (ox + v._tvpLx * s) + 'px';
+      st.top = (oy + v._tvpLy * s) + 'px';
+      st.width = (v._tvpLw * s) + 'px';
+      st.height = (v._tvpLh * s) + 'px';
+    },
+    repositionAll: function(){
+      var a = document.querySelectorAll('video[data-tvp-video="1"]');
+      for(var i = 0; i < a.length; i++) this.reposition(a[i]);
+    }
+  };
+  window.__tvpVideo = H;
+  window.addEventListener('resize', function(){ if(window.__tvpVideo) window.__tvpVideo.repositionAll(); });
+  window.addEventListener('orientationchange', function(){ if(window.__tvpVideo) window.__tvpVideo.repositionAll(); });
+})();
+)js";
+	emscripten_run_script(code);
+}
+#endif // __EMSCRIPTEN__
+
+
 //---------------------------------------------------------------------------
 static std::vector<tTJSNI_VideoOverlay *> TVPVideoOverlayVector;
 //---------------------------------------------------------------------------
@@ -103,6 +193,10 @@ tTJSNI_VideoOverlay::tTJSNI_VideoOverlay()
 #if defined(_WIN32) && defined(KRKRSDL2_USE_WIN32_EVENT_QUEUE) && defined(KRKRSDL2_ENABLE_VIDEOOVERLAY)
 	Bitmap[0] = Bitmap[1] = NULL;
 	BmpBits[0] = BmpBits[1] = NULL;
+#endif
+#ifdef __EMSCRIPTEN__
+	EmscVideoState = nullptr;
+	EmscVolume = 100000; // full (TVP volume scale: 0..100000)
 #endif
 }
 //---------------------------------------------------------------------------
@@ -229,6 +323,8 @@ void tTJSNI_VideoOverlay::Open(const ttstr &_name)
 	// set Status
 	ClearWndProcMessages();
 	SetStatus(tTVPVideoOverlayStatus::Stop);
+#elif defined(__EMSCRIPTEN__)
+	EmscOpen(_name);
 #endif
 }
 //---------------------------------------------------------------------------
@@ -254,6 +350,8 @@ void tTJSNI_VideoOverlay::Close()
 
 	Bitmap[0] = Bitmap[1] = NULL;
 	BmpBits[0] = BmpBits[1] = NULL;
+#elif defined(__EMSCRIPTEN__)
+	EmscClose();
 #endif
 }
 //---------------------------------------------------------------------------
@@ -296,6 +394,8 @@ void tTJSNI_VideoOverlay::Play()
 		ClearWndProcMessages();
 		if( Mode != vomMFEVR ) SetStatus(tTVPVideoOverlayStatus::Play);
 	}
+#elif defined(__EMSCRIPTEN__)
+	EmscPlay();
 #endif
 }
 //---------------------------------------------------------------------------
@@ -309,6 +409,8 @@ void tTJSNI_VideoOverlay::Stop()
 		ClearWndProcMessages();
 		if( Mode != vomMFEVR ) SetStatus(tTVPVideoOverlayStatus::Stop);
 	}
+#elif defined(__EMSCRIPTEN__)
+	EmscStop();
 #endif
 }
 //---------------------------------------------------------------------------
@@ -322,6 +424,8 @@ void tTJSNI_VideoOverlay::Pause()
 //		ClearWndProcMessages();
 		if( Mode != vomMFEVR ) SetStatus(tTVPVideoOverlayStatus::Pause);
 	}
+#elif defined(__EMSCRIPTEN__)
+	EmscPause();
 #endif
 }
 void tTJSNI_VideoOverlay::Rewind()
@@ -385,6 +489,8 @@ void tTJSNI_VideoOverlay::SetRectangleToVideoOverlay()
 		RECT rect = {l + ofsx, t + ofsy, r + ofsx, b + ofsy};
 		VideoOverlay->SetRect(&rect);
 	}
+#elif defined(__EMSCRIPTEN__)
+	EmscUpdateRect();
 #endif
 }
 //---------------------------------------------------------------------------
@@ -478,6 +584,9 @@ void tTJSNI_VideoOverlay::SetVisible(bool b)
 			VideoOverlay->SetVisible(Visible);
 		}
 	}
+#endif
+#ifdef __EMSCRIPTEN__
+	EmscSetVisible(b);
 #endif
 }
 //---------------------------------------------------------------------------
@@ -837,6 +946,8 @@ void tTJSNI_VideoOverlay::SetMode( tTVPVideoOverlayMode m )
 	{
 		Mode = m;
 	}
+#elif defined(__EMSCRIPTEN__)
+	if(!EmscVideoState) Mode = m;
 #endif
 }
 
@@ -899,6 +1010,9 @@ void tTJSNI_VideoOverlay::SetAudioVolume(tjs_int b)
 	{
 		VideoOverlay->SetAudioVolume( TVPVolumeToDSAttenuate( b ) );
 	}
+#elif defined(__EMSCRIPTEN__)
+	EmscVolume = b;
+	EmscSetVolume(b);
 #endif
 }
 tjs_uint tTJSNI_VideoOverlay::GetNumberOfAudioStream()
@@ -1403,3 +1517,306 @@ tTJSNativeClass * TVPCreateNativeClass_VideoOverlay()
 }
 //---------------------------------------------------------------------------
 
+
+//---------------------------------------------------------------------------
+// Emscripten HTML5 <video> overlay implementation
+//---------------------------------------------------------------------------
+#ifdef __EMSCRIPTEN__
+// callbacks invoked from the HTML5 <video> event listeners (JS -> C++)
+static void TVP_EmscVideo_OnEnded(double self)
+{
+	auto *o = reinterpret_cast<tTJSNI_VideoOverlay*>(static_cast<intptr_t>(self));
+	if(o) o->EmscHandleEnded();
+}
+static void TVP_EmscVideo_OnError(double self)
+{
+	auto *o = reinterpret_cast<tTJSNI_VideoOverlay*>(static_cast<intptr_t>(self));
+	if(o) o->EmscHandleError();
+}
+static void TVP_EmscVideo_OnCanPlay(double self)
+{
+	auto *o = reinterpret_cast<tTJSNI_VideoOverlay*>(static_cast<intptr_t>(self));
+	if(o) o->EmscHandleCanPlay();
+}
+
+EMSCRIPTEN_BINDINGS(tvp_video_overlay_emsc)
+{
+	emscripten::function("tvpVideoCbEnded", &TVP_EmscVideo_OnEnded);
+	emscripten::function("tvpVideoCbError", &TVP_EmscVideo_OnError);
+	emscripten::function("tvpVideoCbCanPlay", &TVP_EmscVideo_OnCanPlay);
+}
+
+void tTJSNI_VideoOverlay::EmscOpen(const ttstr &_name)
+{
+	EmscClose();
+
+	if(!Window) TVPThrowExceptionMessage(TVPWindowAlreadyMissing);
+
+	ttstr name(_name);
+	const tjs_char *param_pos = TJS_strchr(name.c_str(), TJS_W('?'));
+	if(param_pos != NULL)
+		name = ttstr(name, (int)(param_pos - name.c_str()));
+
+	ttstr ext = TVPExtractStorageExt(name).c_str();
+	ext.ToLowerCase();
+	std::string extAscii;
+	for(tjs_uint i = 0; i < ext.length(); i++)
+	{
+		tjs_char c = ext[i];
+		if(c < 128) extAscii += (char)c;
+	}
+	std::string mime = "video/mp4";
+	if(extAscii == "webm") mime = "video/webm";
+	else if(extAscii == "ogv" || extAscii == "ogg") mime = "video/ogg";
+	else if(extAscii == "mp4" || extAscii == "m4v") mime = "video/mp4";
+	else if(extAscii == "mov") mime = "video/quicktime";
+	else if(extAscii == "mkv") mime = "video/x-matroska";
+	else if(!extAscii.empty()) mime = std::string("video/") + extAscii;
+
+	tTJSBinaryStream *stream = NULL;
+	tjs_uint8 *buf = NULL;
+	tjs_uint size = 0;
+	emscripten::val urlVal = emscripten::val::undefined();
+	try
+	{
+		stream = TVPCreateStream(name);
+		size = (tjs_uint)stream->GetSize();
+		buf = new tjs_uint8[size];
+		stream->ReadBuffer(buf, size);
+		delete stream; stream = NULL;
+
+		emscripten::val u8 = emscripten::val::global("Uint8Array").new_(
+			emscripten::typed_memory_view(size, buf));
+		emscripten::val arr = emscripten::val::array();
+		arr.set(0, u8);
+		emscripten::val opts = emscripten::val::object();
+		opts.set("type", mime);
+		emscripten::val blob = emscripten::val::global("Blob").new_(arr, opts);
+		urlVal = emscripten::val::global("URL").call<emscripten::val>("createObjectURL", blob);
+	}
+	catch(...)
+	{
+		if(buf) delete[] buf;
+		if(stream) delete stream;
+		EmscClose();
+		throw;
+	}
+	delete[] buf; buf = NULL;
+
+	TVP_EmscVideoEnsureHelpers();
+
+	tVPVideoEmscState *st = new tVPVideoEmscState();
+	EmscVideoState = st;
+	st->blobUrl = urlVal.as<std::string>();
+
+	emscripten::val document = emscripten::val::global("document");
+	emscripten::val video = document.call<emscripten::val>("createElement", std::string("video"));
+	st->video = video;
+
+	video.set("src", st->blobUrl);
+	video.set("preload", std::string("auto"));
+	video.set("playsInline", true);
+	video.set("loop", false);
+	video.set("controls", false);
+	video.set("disablePictureInPicture", true);
+	emscripten::val style = video["style"];
+	style.set("position", std::string("absolute"));
+	style.set("objectFit", std::string("fill"));
+	style.set("backgroundColor", std::string("black"));
+	style.set("zIndex", std::string("60"));
+	style.set("display", Visible ? std::string("block") : std::string("none"));
+	style.set("pointerEvents", std::string("none"));
+	style.set("margin", std::string("0"));
+	style.set("border", std::string("0"));
+	video.call<void>("setAttribute", std::string("data-tvp-video"), std::string("1"));
+
+	intptr_t selfp = reinterpret_cast<intptr_t>(this);
+	video.set("_tvpPtr", (double)selfp);
+
+	emscripten::val helpers = emscripten::val::global("window")["__tvpVideo"];
+	if(TVP_EmscValOk(helpers))
+	{
+		st->onEnded = helpers["makeHandler"](std::string("tvpVideoCbEnded"));
+		st->onError = helpers["makeHandler"](std::string("tvpVideoCbError"));
+		st->onCanPlay = helpers["makeHandler"](std::string("tvpVideoCbCanPlay"));
+		if(TVP_EmscValOk(st->onEnded))
+			video.call<void>("addEventListener", std::string("ended"), st->onEnded);
+		if(TVP_EmscValOk(st->onError))
+			video.call<void>("addEventListener", std::string("error"), st->onError);
+		if(TVP_EmscValOk(st->onCanPlay))
+			video.call<void>("addEventListener", std::string("canplay"), st->onCanPlay);
+	}
+
+	document["body"].call<void>("appendChild", video);
+
+	EmscSetVolume(EmscVolume);
+	EmscUpdateRect();
+
+	ClearWndProcMessages();
+	SetStatus(tTVPVideoOverlayStatus::Stop);
+}
+
+void tTJSNI_VideoOverlay::EmscClose()
+{
+	tVPVideoEmscState *st = (tVPVideoEmscState*)EmscVideoState;
+	if(!st) return;
+	EmscVideoState = nullptr;
+	emscripten::val video = st->video;
+	if(TVP_EmscValOk(video))
+	{
+		try
+		{
+			if(TVP_EmscValOk(st->onEnded))
+				video.call<void>("removeEventListener", std::string("ended"), st->onEnded);
+			if(TVP_EmscValOk(st->onError))
+				video.call<void>("removeEventListener", std::string("error"), st->onError);
+			if(TVP_EmscValOk(st->onCanPlay))
+				video.call<void>("removeEventListener", std::string("canplay"), st->onCanPlay);
+			video.call<void>("pause");
+			video.set("src", emscripten::val::null());
+			video.call<void>("removeAttribute", std::string("src"));
+			video.call<void>("load");
+			emscripten::val parent = video["parentNode"];
+			if(TVP_EmscValOk(parent))
+				parent.call<void>("removeChild", video);
+		}
+		catch(...) {}
+	}
+	if(!st->blobUrl.empty())
+	{
+		try { emscripten::val::global("URL").call<void>("revokeObjectURL", st->blobUrl); }
+		catch(...) {}
+	}
+	delete st;
+}
+
+void tTJSNI_VideoOverlay::EmscPlay()
+{
+	tVPVideoEmscState *st = (tVPVideoEmscState*)EmscVideoState;
+	if(!st || st->failed)
+	{
+		SetStatusAsync(tTVPVideoOverlayStatus::Stop);
+		return;
+	}
+	st->wantPlay = true;
+	SetStatus(tTVPVideoOverlayStatus::Play);
+	emscripten::val helpers = emscripten::val::global("window")["__tvpVideo"];
+	if(TVP_EmscValOk(helpers))
+		helpers.call<void>("play", st->video);
+}
+
+void tTJSNI_VideoOverlay::EmscStop()
+{
+	tVPVideoEmscState *st = (tVPVideoEmscState*)EmscVideoState;
+	if(st)
+	{
+		st->wantPlay = false;
+		emscripten::val helpers = emscripten::val::global("window")["__tvpVideo"];
+		if(TVP_EmscValOk(helpers))
+		{
+			helpers.call<void>("pause", st->video);
+			helpers.call<void>("seek0", st->video);
+		}
+	}
+	SetStatus(tTVPVideoOverlayStatus::Stop);
+}
+
+void tTJSNI_VideoOverlay::EmscPause()
+{
+	tVPVideoEmscState *st = (tVPVideoEmscState*)EmscVideoState;
+	if(st)
+	{
+		st->wantPlay = false;
+		emscripten::val helpers = emscripten::val::global("window")["__tvpVideo"];
+		if(TVP_EmscValOk(helpers))
+			helpers.call<void>("pause", st->video);
+	}
+	SetStatus(tTVPVideoOverlayStatus::Pause);
+}
+
+void tTJSNI_VideoOverlay::EmscSetVisible(bool b)
+{
+	tVPVideoEmscState *st = (tVPVideoEmscState*)EmscVideoState;
+	if(!st) return;
+	st->video["style"].set("display", b ? std::string("block") : std::string("none"));
+}
+
+void tTJSNI_VideoOverlay::EmscUpdateRect()
+{
+	tVPVideoEmscState *st = (tVPVideoEmscState*)EmscVideoState;
+	if(!st) return;
+	tjs_int ww = 0, wh = 0;
+	if(Window) { ww = Window->GetWidth(); wh = Window->GetHeight(); }
+	st->video.set("_tvpW", (double)ww);
+	st->video.set("_tvpH", (double)wh);
+	st->video.set("_tvpLx", (double)Rect.left);
+	st->video.set("_tvpLy", (double)Rect.top);
+	st->video.set("_tvpLw", (double)Rect.get_width());
+	st->video.set("_tvpLh", (double)Rect.get_height());
+	emscripten::val helpers = emscripten::val::global("window")["__tvpVideo"];
+	if(TVP_EmscValOk(helpers))
+		helpers.call<void>("reposition", st->video);
+}
+
+void tTJSNI_VideoOverlay::EmscSetVolume(tjs_int v)
+{
+	tVPVideoEmscState *st = (tVPVideoEmscState*)EmscVideoState;
+	if(!st) return;
+	double vol;
+	if(v >= 0) vol = v / 100000.0;        // TVP volume scale (0..100000)
+	else vol = (v + 10000.0) / 10000.0;   // DirectSound attenuate (-10000..0)
+	if(vol < 0.0) vol = 0.0;
+	if(vol > 1.0) vol = 1.0;
+	try
+	{
+		st->video.set("volume", vol);
+		st->video.set("muted", vol <= 0.0);
+	}
+	catch(...) {}
+}
+
+void tTJSNI_VideoOverlay::EmscHandleEnded()
+{
+	tVPVideoEmscState *st = (tVPVideoEmscState*)EmscVideoState;
+	if(!st) return;
+	if(Loop)
+	{
+		emscripten::val helpers = emscripten::val::global("window")["__tvpVideo"];
+		if(TVP_EmscValOk(helpers))
+		{
+			helpers.call<void>("seek0", st->video);
+			helpers.call<void>("play", st->video);
+		}
+		FirePeriodEvent(perLoop);
+	}
+	else
+	{
+		st->wantPlay = false;
+		SetStatusAsync(tTVPVideoOverlayStatus::Stop);
+	}
+}
+
+void tTJSNI_VideoOverlay::EmscHandleError()
+{
+	tVPVideoEmscState *st = (tVPVideoEmscState*)EmscVideoState;
+	if(!st) return;
+	st->failed = true;
+	st->wantPlay = false;
+	TVPAddLog(ttstr("VideoOverlay: HTML5 video failed to load (unsupported codec or decode error); skipping."));
+	SetStatusAsync(tTVPVideoOverlayStatus::Stop);
+}
+
+void tTJSNI_VideoOverlay::EmscHandleCanPlay()
+{
+	tVPVideoEmscState *st = (tVPVideoEmscState*)EmscVideoState;
+	if(!st) return;
+	st->ready = true;
+	if(st->wantPlay)
+	{
+		emscripten::val helpers = emscripten::val::global("window")["__tvpVideo"];
+		if(TVP_EmscValOk(helpers))
+			helpers.call<void>("play", st->video);
+	}
+}
+
+#endif // __EMSCRIPTEN__

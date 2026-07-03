@@ -603,6 +603,12 @@ set_source_files_properties(src/plugins/kremscripten.cpp PROPERTIES
 	COMPILE_OPTIONS "-std=gnu++17"
 	SKIP_PRECOMPILE_HEADERS ON)
 endif()
+if(${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
+set_source_files_properties(src/core/visual/sdl2/VideoOvlImpl.cpp PROPERTIES
+	CXX_STANDARD 17
+	COMPILE_OPTIONS "-std=gnu++17"
+	SKIP_PRECOMPILE_HEADERS ON)
+endif()
 if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.13.0")
 target_link_options(${KRKRSDL2COMMON_NAME} PUBLIC ${KRKRSDL2_LDFLAGS})
 endif()

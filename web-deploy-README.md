@@ -127,3 +127,13 @@ add_header Cross-Origin-Embedder-Policy "require-corp";
 - **点游戏后下载失败**：确认 `?data=` 指向的路径相对部署根正确；`play.html` 与 `krkrsdl2.js`/`.wasm` 在同一目录。
 - **元数据保存后没更新**：刷新页面；检查 `manifest.json` 是否写入成功（看 `POST /api/manifest` 响应）。
 - **封面不显示**：检查 `covers/` 里文件是否存在；封面路径在 `manifest.json` 里应为 `covers/xxx.png` 形式。
+
+## 视频播放（VideoOverlay）
+
+Web 构建通过 HTML5 `<video>` 元素实现 `VideoOverlay` 覆盖式播放：引擎从 `.xp3` 里读出视频字节，生成 Blob URL，把 `<video>` 叠加在画布上方按游戏坐标（含 letterbox）定位，播放结束后通过 `onStatusChanged` 回调通知脚本，因此依赖播放结束的脚本不会卡死。
+
+- **支持格式**：浏览器原生能解码的容器/编码，主要是 `.mp4`(H.264+AAC)、`.webm`、`.ogv`(Theora)。`.mkv`/`.mov` 视浏览器而定。
+- **不支持**：`.wmv`、`.avi` 等浏览器无法解码的格式——这类视频会触发 `error` 事件，引擎记日志并立即把状态置为 `stop` 让游戏继续（相当于跳过该视频）。如需播放，请把视频预先转码为 `.mp4`(H.264) 或 `.webm` 再打包进 `.xp3`。
+- **音频**：依赖浏览器的自动播放策略；游戏运行时玩家已有点击交互，通常可带声播放。若被策略拦截，会自动以静音方式继续播放。
+- **模式**：`vomOverlay`/`vomMixer`/`vomMFEVR` 按设定的矩形覆盖显示；`vomLayer` 目前按覆盖方式尽力显示（不逐帧写入 Layer，因为 WASM 内解码代价过高）。
+- **定位**：`<video>` 用 `position:absolute` 叠在 `#canvas` 上，依据画布逻辑尺寸与可视区域做等比缩放，窗口缩放时自动重定位。
