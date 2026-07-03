@@ -730,6 +730,7 @@
           try { return decodeURIComponent(m[1]); } catch(e){ return m[1]; }
         }
         var current = currentDataFile();
+        window.__tvpGameDataPath = current;
         fetch('api/manifest', {cache:'no-store'}).then(function(r){
           return r.ok ? r.json() : null;
         }).then(function(manifest){

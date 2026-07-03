@@ -21,6 +21,9 @@
 #include "voMode.h"
 
 #include "NativeEventQueue.h"
+#ifdef __EMSCRIPTEN__
+#include <string>
+#endif
 
 //---------------------------------------------------------------------------
 // tTJSNI_VideoOverlay : VideoOverlay Native Instance
@@ -211,10 +214,13 @@ private:
 	void EmscSetVisible(bool b);
 	void EmscUpdateRect();
 	void EmscSetVolume(tjs_int v);
+	void EmscSetupVideoElement(const std::string &blobUrl, const std::string &mime);
 public:
 	void EmscHandleEnded();
 	void EmscHandleError();
 	void EmscHandleCanPlay();
+	void EmscHandleFetched(std::string url);
+	void EmscHandleFetchFail();
 private:
 #endif
 };
