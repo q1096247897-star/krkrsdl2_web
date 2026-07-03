@@ -133,7 +133,62 @@ add_header Cross-Origin-Embedder-Policy "require-corp";
 Web 构建通过 HTML5 `<video>` 元素实现 `VideoOverlay` 覆盖式播放：引擎从 `.xp3` 里读出视频字节，生成 Blob URL，把 `<video>` 叠加在画布上方按游戏坐标（含 letterbox）定位，播放结束后通过 `onStatusChanged` 回调通知脚本，因此依赖播放结束的脚本不会卡死。
 
 - **支持格式**：浏览器原生能解码的容器/编码，主要是 `.mp4`(H.264+AAC)、`.webm`、`.ogv`(Theora)。`.mkv`/`.mov` 视浏览器而定。
-- **不支持**：`.wmv`、`.avi` 等浏览器无法解码的格式——这类视频会触发 `error` 事件，引擎记日志并立即把状态置为 `stop` 让游戏继续（相当于跳过该视频）。如需播放，请把视频预先转码为 `.mp4`(H.264) 或 `.webm` 再打包进 `.xp3`。
+- **不支持格式（wmv/avi 等）**：浏览器无法解码的格式不再直接读 xp3，而是引擎向 `video_cache/<gamePath>.d/<videoPath去扩展名>.mp4` 请求预先转码好的 mp4；命中则用 `<video>` 播放，未命中（404）则记日志并跳过，游戏继续。生成缓存的方法见文末「为不支持的视频格式生成转码缓存」。
 - **音频**：依赖浏览器的自动播放策略；游戏运行时玩家已有点击交互，通常可带声播放。若被策略拦截，会自动以静音方式继续播放。
 - **模式**：`vomOverlay`/`vomMixer`/`vomMFEVR` 按设定的矩形覆盖显示；`vomLayer` 目前按覆盖方式尽力显示（不逐帧写入 Layer，因为 WASM 内解码代价过高）。
 - **定位**：`<video>` 用 `position:absolute` 叠在 `#canvas` 上，依据画布逻辑尺寸与可视区域做等比缩放，窗口缩放时自动重定位。
+
+## 为不支持的视频格式生成转码缓存
+
+浏览器无法解码 `.wmv`/`.avi` 等格式，又不想重新转码后打包回 `.xp3`。本方案**在性能较强的机器上转码一次**，把 mp4 放到引擎会去请求的缓存目录；NAS 只需静态托管该目录，零实时转码、不重新打包 `.xp3`。
+
+### 缓存路径约定
+
+引擎按以下规则查找缓存（与 `src/core/visual/sdl2/VideoOvlImpl.cpp` 的 `TVP_EmscCacheRelPath` 一致）：
+
+```
+video_cache/<gamePath>.d/<videoPath去掉扩展名>.mp4
+```
+
+- `<gamePath>` = 浏览器地址栏 `?data=` 的值，即 `.xp3` 相对 Web 根目录的路径，如 `games/Data.xp3`。
+- `<videoPath>` = 视频在 `.xp3` 内的路径，如 `video/spp1.wmv`，去掉扩展名后加 `.mp4`。
+
+例：`?data=games/Data.xp3` 里的 `video/spp1.wmv` → `video_cache/games/Data.xp3.d/video/spp1.mp4`。
+
+### 生成步骤
+
+1. 安装 [ffmpeg](https://ffmpeg.org/)，确认 `ffmpeg -version` 可用。
+2. 在仓库根目录运行（`<webroot>` 为部署/测试根目录，如 `.test-deploy` 或 `deploy`）：
+
+   ```bash
+   python scripts/transcode_videos.py <webroot>/games/Data.xp3 --out-root <webroot>
+   ```
+
+   脚本会解析 xp3，挑出浏览器不支持的格式（wmv/asf/avi/mpg/mpeg/mpe/flv/rm/rmvb/vob/3gp），逐个用 ffmpeg 转码为 H.264+AAC、`+faststart` 的 mp4，写到 `<webroot>/video_cache/...`；已存在则跳过，`--force` 覆盖。
+
+3. 常用选项：
+
+   | 选项 | 作用 |
+   |---|---|
+   | `--out-root DIR` | Web 根目录，缓存写到其下 `video_cache/`（默认当前目录） |
+   | `--game-path PATH` | 覆盖 `gamePath`（即 `?data=` 值），默认取 xp3 相对 `--out-root` 的路径 |
+   | `--ffmpeg PATH` | 指定 ffmpeg 可执行文件路径 |
+   | `--preset veryfast` | libx264 预设（越慢体积越小，默认 `veryfast`） |
+   | `--crf 23` | 画质（越小越好，默认 23） |
+   | `--force` | 覆盖已存在的缓存 |
+   | `--dry-run` | 只列出视频与目标路径，不转码 |
+   | `--list` | 只列出 xp3 内需转码的视频 |
+
+4. 把生成的 `video_cache/` 整个目录连同游戏一起放到 NAS 部署目录（与 `games/` 同级）。`tools/server.py` 已能静态托管并支持 Range 请求，无需改服务端。
+
+### 验证
+
+- 浏览器控制台会打印 `[tvpVideo]` 相关日志；命中缓存时 `<video>` 正常播放，结束触发 `onStatusChanged`。
+- 缓存缺失时引擎收到 404 后记日志并跳过该视频，游戏不卡死。
+- 可先 `--dry-run` 确认目标路径与 `?data=` 一致再正式转码。
+
+### 说明
+
+- 转码只需在性能较强的机器上做一次；弱性能 NAS 只负责静态托管。
+- 支持格式（mp4/webm 等）仍直接从 `.xp3` 读字节播放，无需缓存。
+- 脚本自带 xp3 解析，不依赖仓库内其它工具；xp3 带 MZ(PE) 头也能识别。
